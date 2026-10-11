@@ -1,5 +1,6 @@
 import * as R from './rules.js';
 import { load, save, ledger, sanitize } from './store.js';
+import * as FX from './fx.js';
 
 // ---------- 状态 ----------
 let state = load();
@@ -246,7 +247,8 @@ function parentView() {
     <div class="flex"><span>打卡开始</span><input id="s-start" type="time" value="${R.timeText(s.start)}"></div>
     <div class="flex"><span>打卡截止</span><input id="s-end" type="time" value="${R.timeText(s.end)}"></div>
     <p class="hint">截止最晚 23:59，且至少比开始晚 1 小时。网页版没有定时推送提醒，记得每晚提醒孩子打开。</p>
-    <button class="btn green" data-action="save-time">保存时间</button></div>
+    <button class="btn green" data-action="save-time">保存时间</button>
+    <div class="flex"><span>动画音效</span><button class="pill ${FX.muted() ? 'gray' : 'red'}" data-action="toggle-sound">${FX.muted() ? '🔇 已关闭' : '🔊 已开启'}</button></div></div>
 
   <div class="card"><h3>数据备份</h3>
     <p class="hint">数据只存在这台手机的浏览器里。清除 Safari 数据或换手机会丢失，建议每月导出一次备份。</p>
@@ -266,8 +268,8 @@ function checkInHTML() {
   const isMakeup = draft.mode === 'makeup';
   if (draft.result) {
     const r = draft.result;
-    return `<div class="celebrate"><div class="spark">✨</div><div class="plus">+${r.stars} ⭐</div>
-      ${r.newRank ? `${seal(r.newRank, 90)}<h2 class="gold">晋级啦！现在是「${r.newRank.name}」级 · ${esc(rankTitle(r.newRank))}</h2>` : `<h2>${isMakeup ? '补卡完成' : '今晚的修炼完成，辛苦啦！'}</h2>`}
+    return `<div class="celebrate"><div class="spark">✨</div><div class="plus">+<span id="plusn">${r.stars}</span> ⭐</div>
+      ${r.newRank ? `${seal(r.newRank, 90).replace('class="seal ', 'class="seal stamp ')}<h2 class="gold">晋级啦！现在是「${r.newRank.name}」级 · ${esc(rankTitle(r.newRank))}</h2>` : `<h2>${isMakeup ? '补卡完成' : '今晚的修炼完成，辛苦啦！'}</h2>`}
       <button class="btn green" data-action="close-overlay">好的</button></div>`;
   }
   const toggles = R.ITEMS.map((i) => `
@@ -316,6 +318,9 @@ function submitCheckIn() {
   const r0 = R.rankFor(before), r1 = R.rankFor(before + stars);
   draft.result = { stars, newRank: r1.index > r0.index ? r1 : null };
   renderOverlay();
+  FX.countUp($('#plusn'), stars);
+  FX.confetti(draft.result.newRank ? 110 : 70);
+  if (draft.result.newRank) FX.sfx.levelUp(); else FX.sfx.ding();
 }
 
 // ---------- 拉伸弹层 ----------
@@ -352,6 +357,7 @@ function stretchAdvance() {
   if (stretch.i + 1 >= R.STRETCH.length) {
     stretch.done = true; stretch.running = false; clearInterval(stretch.timer);
     speak('修炼完成！好好睡觉，明天会更强。');
+    setTimeout(FX.sfx.night, 300);
     return renderOverlay();
   }
   stretch.i++;
@@ -374,6 +380,7 @@ function stretchToggle() {
     stretch.timer = setInterval(() => {
       stretch.left--;
       if (stretch.left === 3) speak('三，二，一');
+      if (stretch.left <= 3 && stretch.left > 0) FX.sfx.tick();
       if (stretch.left <= 0) stretchAdvance(); else renderOverlay();
     }, 1000);
   }
@@ -383,7 +390,7 @@ function stretchToggle() {
 function stretchHTML() {
   const close = '<div class="ohead"><b>全集中·睡前修炼</b><span></span><button class="pill gray" data-action="close-overlay" aria-label="关闭">✕</button></div>';
   if (stretch.done) {
-    return `${close}<div class="celebrate"><div class="spark">🌙</div><h2>修炼完成！</h2><p class="sub">身体放松好了，快去睡觉吧。<br>睡得好，明天会更强！</p>
+    return `${close}<div class="celebrate"><div class="spark"><span class="moon">🌙</span></div><div class="zzz"><span>z</span><span>Z</span><span>Z</span></div><h2>修炼完成！</h2><p class="sub">身体放松好了，快去睡觉吧。<br>睡得好，明天会更强！</p>
       <button class="btn green" data-action="close-overlay">晚安</button></div>`;
   }
   const m = R.STRETCH[stretch.i];
@@ -393,7 +400,7 @@ function stretchHTML() {
     <p class="sub center">第 ${stretch.i + 1} / ${R.STRETCH.length} 个动作</p>
     <div class="ring"><svg viewBox="0 0 240 240"><circle cx="120" cy="120" r="100" class="track"/>
       <circle cx="120" cy="120" r="100" class="prog" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct)}"/></svg>
-      <div class="ring-in"><div class="ricon">${m.icon}</div><b>${stretch.left}</b><small>秒</small></div></div>
+      <div class="ring-in"><div class="ricon">${m.icon}</div><b class="${stretch.running && stretch.left <= 3 ? 'beat' : ''}">${stretch.left}</b><small>秒</small></div></div>
     <h2 class="center">${m.name}</h2><p class="sub center tip">${m.tip}</p>
     <div class="row"><button class="btn ${stretch.running ? 'gray' : 'green'}" data-action="stretch-toggle">${stretch.running ? '⏸ 暂停' : stretch.started ? '▶️ 继续' : '▶️ 开始'}</button>
       <button class="btn gray" data-action="stretch-next">⏭ 下一个</button></div>`;
@@ -415,6 +422,9 @@ function render() {
   $('#app').innerHTML = views[tab]();
   $('#tabs').innerHTML = tabsHTML();
   document.title = `${childName()}的修炼日记`;
+  const hs = $('.hero .seal');
+  if (hs) hs.style.animationDelay = `-${(performance.now() % 3000) / 1000}s`;
+  FX.fireflies();
 }
 
 function renderOverlay() {
@@ -471,19 +481,36 @@ const actions = {
     state.profile.name = name.slice(0, 8); persist(); render();
   },
   'hide-install': () => { localStorage.setItem('xiulian.hideInstall', '1'); render(); },
-  tab: (el) => { tab = el.dataset.tab; if (tab !== 'parent') { parentUnlocked = false; pin = null; firstPin = null; } render(); window.scrollTo(0, 0); },
+  tab: (el) => { tab = el.dataset.tab; if (tab !== 'parent') { parentUnlocked = false; pin = null; firstPin = null; } render(); window.scrollTo(0, 0); FX.replay($('#app'), 'enter'); },
   checkin: () => openCheckIn('tonight', now()),
   stretch: () => openStretch(),
   'close-overlay': () => closeOverlay(),
-  toggle: (el) => { draft.answers[el.dataset.k] = !draft.answers[el.dataset.k]; renderOverlay(); },
+  toggle: (el) => {
+    const k = el.dataset.k, on = !draft.answers[k];
+    draft.answers[k] = on; renderOverlay();
+    const icon = $(`#overlay .toggle[data-k="${k}"] .ticon`);
+    FX.replay(icon, on ? 'wiggle' : 'pop');
+    if (on) { FX.burst(icon); FX.sfx.pop(); } else FX.sfx.off();
+  },
   extra: (el) => {
     const name = state.settings.exercises[+el.dataset.i];
     const ex = draft.answers.extras;
-    draft.answers.extras = ex.includes(name) ? ex.filter((x) => x !== name) : [...ex, name];
+    const on = !ex.includes(name);
+    draft.answers.extras = on ? [...ex, name] : ex.filter((x) => x !== name);
     renderOverlay();
+    const chip = $(`#overlay .chip[data-i="${el.dataset.i}"]`);
+    FX.replay(chip, 'pop');
+    if (on) { FX.burst(chip, { n: 6, dist: 50 }); FX.sfx.pop(); } else FX.sfx.off();
   },
-  mood: (el) => { draft.answers.mood = +el.dataset.i; renderOverlay(); },
-  rope: (el) => { draft.answers.ropeCount = Math.max(0, Math.min(99999, draft.answers.ropeCount + +el.dataset.d)); renderOverlay(); },
+  mood: (el) => {
+    draft.answers.mood = +el.dataset.i; renderOverlay();
+    const face = $(`#overlay .moodbtn[data-i="${el.dataset.i}"] span`);
+    FX.replay(face, 'wiggle'); FX.burst(face, { items: ['💖', '✨'], n: 6, dist: 45 }); FX.sfx.pop();
+  },
+  rope: (el) => {
+    draft.answers.ropeCount = Math.max(0, Math.min(99999, draft.answers.ropeCount + +el.dataset.d)); renderOverlay();
+    FX.replay($('#rope'), 'pop');
+  },
   submit: () => submitCheckIn(),
   'stretch-toggle': () => stretchToggle(),
   'stretch-next': () => stretchAdvance(),
@@ -498,6 +525,7 @@ const actions = {
         if (ledger(state).available >= r.cost) {
           state.redemptions.push({ name: r.name, cost: r.cost, date: now().toISOString() });
           persist(); toast(`兑换成功：${r.name}`);
+          FX.giftOpen(r.name); FX.sfx.gift();
         }
         pin = null; renderOverlay(); render(); return true;
       },
@@ -555,6 +583,7 @@ const actions = {
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   },
+  'toggle-sound': () => { FX.setMuted(!FX.muted()); render(); if (!FX.muted()) FX.sfx.pop(); },
   'reset-pin': () => {
     if (!confirm('会清除当前家长密码并退出家长页，下次进入时重新设置。确定吗？')) return;
     state.settings.pin = ''; persist(); parentUnlocked = false; pin = null; render();
