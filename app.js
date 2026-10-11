@@ -1,6 +1,7 @@
 import * as R from './rules.js';
 import { load, save, ledger, sanitize } from './store.js';
 import * as FX from './fx.js';
+import * as NV from './native.js';
 
 // ---------- 状态 ----------
 let state = load();
@@ -246,15 +247,34 @@ function parentView() {
   <div class="card"><h3>设置</h3>
     <div class="flex"><span>打卡开始</span><input id="s-start" type="time" value="${R.timeText(s.start)}"></div>
     <div class="flex"><span>打卡截止</span><input id="s-end" type="time" value="${R.timeText(s.end)}"></div>
-    <p class="hint">截止最晚 23:59，且至少比开始晚 1 小时。网页版没有定时推送提醒，记得每晚提醒孩子打开。</p>
+    <p class="hint">截止最晚 23:59，且至少比开始晚 1 小时。${NV.has('reminder') ? '' : '网页版没有定时推送提醒，记得每晚提醒孩子打开。'}</p>
     <button class="btn green" data-action="save-time">保存时间</button>
+    ${reminderRow()}
     <div class="flex"><span>动画音效</span><button class="pill ${FX.muted() ? 'gray' : 'red'}" data-action="toggle-sound">${FX.muted() ? '🔇 已关闭' : '🔊 已开启'}</button></div></div>
 
   <div class="card"><h3>数据备份</h3>
-    <p class="hint">数据只存在这台手机的浏览器里。清除 Safari 数据或换手机会丢失，建议每月导出一次备份。</p>
-    <button class="btn green" data-action="export">导出备份文件</button>
+    <p class="hint">${NV.isNative() ? '数据只存在这台手机的 App 里。卸载 App 或换手机会丢失，建议每月导出一次备份；重新安装/升级前一定先导出。' : '数据只存在这台手机的浏览器里。清除 Safari 数据或换手机会丢失，建议每月导出一次备份。'}</p>
+    ${!NV.isNative() || NV.has('export') ? '<button class="btn green" data-action="export">导出备份文件</button>' : '<p class="hint">此版本暂不支持导出备份。</p>'}
     <label class="btn gray file">从备份恢复<input type="file" id="import-file" accept="application/json,.json"></label>
     <button class="btn danger" data-action="reset-pin">重设家长密码</button></div>`;
+}
+
+function reminderRow() {
+  if (!NV.has('reminder')) return '';
+  const m = NV.getReminder();
+  const on = m >= 0;
+  const shown = on ? m : Math.min(state.settings.start + 30, 1439);
+  return `<div class="flex"><span>每晚提醒</span><span class="flex gap"><input id="s-remind" type="time" value="${R.timeText(shown)}">
+    <button class="pill ${on ? 'red' : 'gray'}" data-action="remind-toggle">${on ? '🔔 已开启' : '🔕 已关闭'}</button></span></div>
+    ${on && NV.has('autostartHint') ? '<p class="hint">如果收不到提醒：请到系统设置里允许本 App 自启动、后台运行和通知。</p>' : ''}`;
+}
+
+async function applyReminder(minutes, okMsg) {
+  const r = await NV.setReminder(minutes);
+  const msg = { ok: okMsg, denied: '没有通知权限，请到系统设置里允许本 App 发通知', invalid: '提醒时间不对' }[r] || '设置提醒失败，请重试';
+  toast(msg);
+  if (tab === 'parent' && parentUnlocked && !$('#overlay').innerHTML) render();
+  return r;
 }
 
 // ---------- 打卡弹层 ----------
@@ -324,21 +344,14 @@ function submitCheckIn() {
 }
 
 // ---------- 拉伸弹层 ----------
+let noVoiceTold = false;
 function speak(text) {
-  if (!('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'zh-CN';
-  u.rate = 0.95;
-  speechSynthesis.speak(u);
+  if (!NV.speak(text) && !noVoiceTold) {
+    noVoiceTold = true;
+    toast('手机没有中文语音，可在系统设置里下载语音包');
+  }
 }
-
-async function keepAwake(on) {
-  try {
-    if (on && navigator.wakeLock) stretch.lock = await navigator.wakeLock.request('screen');
-    else if (!on && stretch?.lock) { await stretch.lock.release(); stretch.lock = null; }
-  } catch { /* 不支持就算了 */ }
-}
+const keepAwake = (on) => NV.keepAwake(on);
 
 function openStretch() {
   stretch = { i: 0, left: R.STRETCH[0].seconds, running: false, started: false, done: false, timer: null };
@@ -349,7 +362,7 @@ function closeStretch() {
   if (!stretch) return;
   clearInterval(stretch.timer);
   keepAwake(false);
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  NV.stopSpeak();
   stretch = null;
 }
 
@@ -416,6 +429,7 @@ function render() {
   if (!state.profile.name) {
     $('#app').innerHTML = setupView();
     $('#tabs').innerHTML = '';
+    syncBack();
     return;
   }
   const views = { home: homeView, ranks: ranksView, rewards: rewardsView, parent: parentView };
@@ -425,6 +439,19 @@ function render() {
   const hs = $('.hero .seal');
   if (hs) hs.style.animationDelay = `-${(performance.now() % 3000) / 1000}s`;
   FX.fireflies();
+  syncBack();
+}
+
+// 告诉原生外壳：现在按返回键是否由网页处理（有弹层或不在首页）
+function syncBack() {
+  NV.setCanGoBack(!!$('#overlay').innerHTML || (!!state.profile.name && tab !== 'home'));
+}
+
+// 原生返回键：先关弹层，再回首页；都没有则返回 false 交给系统
+function back() {
+  if ($('#overlay').innerHTML) { closeOverlay(); return true; }
+  if (state.profile.name && tab !== 'home') { actions.tab({ dataset: { tab: 'home' } }); return true; }
+  return false;
 }
 
 function renderOverlay() {
@@ -438,6 +465,7 @@ function renderOverlay() {
   el.classList.toggle('show', !!html);
   document.body.classList.toggle('noscroll', !!html);
   el.scrollTop = scroll;
+  syncBack();
 }
 
 function closeOverlay() {
@@ -571,8 +599,25 @@ const actions = {
     const { start, end } = R.sanitizeWindow(toMin($('#s-start').value), toMin($('#s-end').value));
     state.settings.start = start; state.settings.end = end; persist(); render();
     toast(`打卡时间：${R.timeText(start)}–${R.timeText(end)}`);
+    const rm = NV.getReminder();
+    if (rm >= 0 && (rm < start || rm > end - 30)) {
+      const nm = Math.min(start + 30, 1439);
+      applyReminder(nm, `提醒时间已跟着调整为 ${R.timeText(nm)}`);
+    }
+  },
+  'remind-toggle': () => {
+    if (NV.getReminder() >= 0) return applyReminder(-1, '已关闭每晚提醒');
+    const [h, m] = ($('#s-remind').value || '').split(':').map(Number);
+    const v = h * 60 + m;
+    if (!(v >= 0 && v < 1440)) return toast('请先选好提醒时间');
+    applyReminder(v, `每晚 ${R.timeText(v)} 会提醒打卡`);
   },
   export: async () => {
+    if (NV.isNative()) {
+      if (!NV.has('export')) return toast('此版本暂不支持导出');
+      const r = await NV.exportBackup(`修炼日记备份-${R.dayKey(now())}.json`, JSON.stringify(state, null, 1));
+      return toast({ ok: '备份已保存', cancel: '已取消导出', timeout: '可能已保存，请到「文件」里确认' }[r] || '保存失败，请重试');
+    }
     const blob = new Blob([JSON.stringify(state, null, 1)], { type: 'application/json' });
     const name = `修炼日记备份-${R.dayKey(now())}.json`;
     const file = new File([blob], name, { type: 'application/json' });
@@ -608,6 +653,11 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', async (e) => {
+  if (e.target.id === 's-remind') {
+    const [h, m] = e.target.value.split(':').map(Number);
+    if (NV.getReminder() >= 0 && h * 60 + m >= 0) applyReminder(h * 60 + m, `每晚 ${e.target.value} 会提醒打卡`);
+    return;
+  }
   if (e.target.id !== 'import-file' || !e.target.files[0]) return;
   try {
     const data = sanitize(JSON.parse(await e.target.files[0].text()));
@@ -624,8 +674,9 @@ setInterval(() => {
 }, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && tab === 'home' && !draft && !stretch) render(); });
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js');
+// 只在网页版的域名注册离线缓存；原生外壳的虚拟域名一律不注册
+if ('serviceWorker' in navigator && ['gdutboy.github.io', 'localhost'].includes(location.hostname)) navigator.serviceWorker.register('sw.js');
 navigator.storage?.persist?.();
 
 render();
-window.__xiulian = { get state() { return state; }, render };
+window.__xiulian = { get state() { return state; }, render, back };

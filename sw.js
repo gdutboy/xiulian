@@ -1,6 +1,6 @@
 // 离线缓存：先用网络拿最新版本，失败时用缓存，保证没网也能打开。
-const CACHE = 'xiulian-v3';
-const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'rules.js', 'store.js', 'fx.js', 'manifest.webmanifest',
+const CACHE = 'xiulian-v4';
+const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'rules.js', 'store.js', 'fx.js', 'native.js', 'manifest.webmanifest',
   'ink-night.jpg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
