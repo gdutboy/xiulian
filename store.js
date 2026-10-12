@@ -1,5 +1,5 @@
 // 本地存储：所有数据只保存在这台设备的浏览器里。
-import { DEFAULT_START, DEFAULT_END, DEFAULT_EXERCISES, DEFAULT_REWARDS, normalizeList, cleanBodies, cleanBonuses, cleanRaidTarget, RAID_DEFAULT } from './rules.js';
+import { DEFAULT_START, DEFAULT_END, DEFAULT_EXERCISES, DEFAULT_REWARDS, normalizeList, cleanBodies, cleanBonuses, cleanRaidTarget, RAID_DEFAULT, cleanCards, cardStars, cleanFitness } from './rules.js';
 
 const KEY = 'xiulian.v1';
 
@@ -13,6 +13,8 @@ function fresh() {
     redemptions: [],   // {name, cost, date}
     bodies: [],        // {date: dayKey, h?, w?, waist?}，同一天一条
     bonuses: [],       // {kind:'measure', week, stars, date} 每周测量奖励
+    cards: [],         // {key, card, date} 角色卡（见 rules.js 角色卡图鉴）
+    fitness: [],       // {date, item, value, grade} 体质测试成绩
   };
 }
 
@@ -30,6 +32,9 @@ export function sanitize(raw, today = new Date()) {
   s.settings.raidTarget = cleanRaidTarget(s.settings.raidTarget) ?? RAID_DEFAULT;
   s.bodies = cleanBodies(raw.bodies, today);
   s.bonuses = cleanBonuses(raw.bonuses, today);
+  s.cards = cleanCards(raw.cards);
+  s.fitness = cleanFitness(raw.fitness, today);
+  if (!['m', 'f'].includes(s.profile.gender)) delete s.profile.gender;
   return s;
 }
 
@@ -47,7 +52,8 @@ export function save(state, storage = globalThis.localStorage) {
 
 export function ledger(state) {
   const earned = Object.values(state.logs).reduce((s, l) => s + (l.stars || 0), 0)
-    + (state.bonuses || []).reduce((s, b) => s + (b.stars || 0), 0);
+    + (state.bonuses || []).reduce((s, b) => s + (b.stars || 0), 0)
+    + cardStars(state);
   const spent = state.redemptions.reduce((s, r) => s + (r.cost || 0), 0);
   return { earned, spent, available: Math.max(0, earned - spent) };
 }

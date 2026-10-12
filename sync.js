@@ -115,7 +115,7 @@ export async function sync({ keepalive = false } = {}) {
     }
     cfg.lastSyncAt = new Date().toISOString(); cfg.lastError = ''; backoff = 0;
   } catch (e) {
-    cfg.lastError = e?.name === 'AbortError' ? '连接服务器超时' : (e?.message || '连不上服务器');
+    cfg.lastError = e?.name === 'AbortError' ? '连接服务器超时' : (e instanceof TypeError || !e?.message ? '暂时连不上家里的服务器' : e.message);
     retryTimer = setTimeout(() => sync(), BACKOFF[Math.min(backoff++, BACKOFF.length - 1)]);
   } finally {
     saveCfg();

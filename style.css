@@ -205,3 +205,24 @@ input[type=time],input[type=date]{width:auto;color-scheme:dark}
 @media (prefers-reduced-motion:reduce){.ss{display:none}}
 .syncform input{display:block;width:100%;margin-top:8px}.syncform h3{margin-bottom:4px}.viewbar{border:1px solid rgba(242,184,77,.35)}
 .bgm-quick{position:absolute;top:10px;left:10px;z-index:20;border:1px solid rgba(242,184,77,.6);background:rgba(0,0,0,.6);color:#fff;border-radius:999px;width:30px;height:30px;font-size:15px;cursor:pointer;padding:0}
+/* 角色卡 */
+.album{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.acard{border-radius:12px;padding:6px 4px;text-align:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);display:flex;flex-direction:column;align-items:center;min-height:118px}
+.acard .char{height:72px}.acard b{font-size:12px;margin-top:2px}.acard small{font-size:11px;color:var(--sub)}
+.acard.r2{border-color:rgba(242,184,77,.5)}.acard.r3{border-color:rgba(204,26,51,.7);background:rgba(204,26,51,.12)}
+.acard.locked{opacity:.5}.acard .q{font-size:34px;line-height:72px;color:var(--sub)}
+.cardreveal{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:24px}
+.cr-in{text-align:center;max-width:320px;width:100%}
+.flipcard{position:relative;width:200px;height:270px;margin:16px auto;perspective:900px}
+.flipcard>div{position:absolute;inset:0;border-radius:18px;backface-visibility:hidden;transition:transform .8s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.fc-back{background:repeating-conic-gradient(#1f8561 0 25%,#111 0 50%) 0 0/40px 40px;color:#fff;font-size:64px;font-weight:900;border:4px solid #f2b84d}
+.fc-front{transform:rotateY(180deg);background:linear-gradient(160deg,#2a2a3a,#151520);border:4px solid #8aa1b1}
+.flipcard.r2 .fc-front{border-color:#f2b84d}.flipcard.r3 .fc-front{border-color:#cc1a33;background:linear-gradient(160deg,#3a1520,#151015)}
+.fc-front .char{height:180px}.fc-front b{font-size:20px;margin-top:6px}.fc-front small{color:var(--gold)}
+.flipcard.flip .fc-back{transform:rotateY(180deg)}.flipcard.flip .fc-front{transform:rotateY(360deg)}
+/* 体测 */
+.fitrow{display:flex;align-items:center;gap:8px;margin-top:8px}.fitrow>span:first-child,.fitrow>b:first-child{flex:1}
+.lv{font-size:13px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.1)}
+.lv0{background:rgba(242,184,77,.25);color:var(--gold)}.lv1{background:rgba(77,158,242,.2);color:#8cc2ff}.lv2{background:rgba(47,191,134,.2);color:#7fe0b5}.lv3{background:rgba(255,255,255,.1);color:var(--sub)}
+.fitblock{border-top:1px solid rgba(255,255,255,.08);margin-top:10px;padding-top:4px}
+select{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:10px;padding:10px;font-size:16px}

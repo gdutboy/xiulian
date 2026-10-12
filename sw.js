@@ -1,5 +1,5 @@
 // 离线缓存：先用网络拿最新版本，失败时用缓存，保证没网也能打开。
-const CACHE = 'xiulian-v14';
+const CACHE = 'xiulian-v15';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'rules.js', 'store.js', 'fx.js', 'native.js', 'chars.js', 'voices.js', 'sync.js', 'viewer.js', 'bgm.js', 'manifest.webmanifest',
   'ink-night.jpg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

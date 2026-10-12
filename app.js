@@ -204,8 +204,117 @@ function ranksView() {
         <p class="gold">再拿 ${next.threshold - L.earned} 颗星晋级「${next.name}」</p>` : '<p class="gold">你已经是柱了！继续保持！</p>'}
     </div>
     <div class="card"><h3>呼吸法勋章</h3><p class="hint">最长连续修炼 ${longest} 天</p><div class="badges">${badges}</div></div>
+    ${fitnessKidCard(state)}
+    ${cardAlbum()}
     <div class="card"><h3>讨伐记录</h3>${raidWall()}</div>
     <div class="card"><h3>晋级之路</h3>${ladder}</div>`;
+}
+
+// ---------- 体质测试 ----------
+const GRADE_CN = ['', '一', '二', '三', '四', '五', '六'];
+const LEVEL_TAG = ['🥇 优秀', '🥈 良好', '🥉 及格', '💪 加油'];
+const fmtFit = (item, v) => (FIT_STEP1(item) ? String(Math.round(v)) : v.toFixed(1));
+const FIT_STEP1 = (item) => R.FITNESS_ITEMS[item].step === 1;
+
+/** 每个项目：最新成绩、最好成绩、等级、下一档目标。孩子页、家长页、家长查看共用。 */
+function fitnessRows(st) {
+  const grade = R.gradeAt(st.profile, now());
+  const gender = st.profile.gender;
+  if (!grade || !gender) return { grade, gender, rows: [] };
+  const rows = Object.keys(R.FITNESS_ITEMS).filter((k) => R.fitnessApplies(k, grade)).map((k) => {
+    const it = R.FITNESS_ITEMS[k];
+    const recs = st.fitness.filter((f) => f.item === k);
+    const last = recs.at(-1);
+    const best = recs.length ? recs.reduce((b, f) => ((it.better === 'high' ? f.value > b.value : f.value < b.value) ? f : b)) : null;
+    const lv = best ? R.fitnessLevel(k, grade, gender, best.value) : null;
+    return { k, it, recs, last, best, lv };
+  });
+  return { grade, gender, rows };
+}
+
+function fitnessGoal(r) {
+  if (!r.lv || r.lv.next == null) return '';
+  const gap = Math.abs(r.lv.next - r.best.value);
+  const word = r.it.better === 'low' ? `再快 ${gap.toFixed(1)} 秒` : `再多 ${fmtFit(r.k, gap)} ${r.it.unit}`;
+  return `${word}就到「${R.FITNESS_LEVELS[r.lv.level - 1]}」`;
+}
+
+/** 孩子看的体测卡：只讲等级和下一个目标，正向鼓励。 */
+function fitnessKidCard(st) {
+  const { grade, gender, rows } = fitnessRows(st);
+  if (!grade || !gender) return '';
+  const done = rows.filter((r) => r.best);
+  return `<div class="card"><h3>🏅 体质测试（${GRADE_CN[grade]}年级）</h3>
+    ${done.length ? done.map((r) => `<div class="fitrow"><span>${r.it.name}</span><b>${fmtFit(r.k, r.best.value)}${r.it.unit}</b><span class="lv lv${r.lv.level}">${LEVEL_TAG[r.lv.level]}</span></div>
+      ${fitnessGoal(r) ? `<p class="hint">🎯 ${fitnessGoal(r)}</p>` : '<p class="hint gold">🎉 已经是最高等级！</p>'}`).join('')
+      : '<p class="hint">还没有成绩，请爸爸妈妈帮忙测一次跳绳、坐位体前屈吧！</p>'}</div>`;
+}
+
+function fitnessParentCard() {
+  const p = state.profile;
+  const { grade, gender, rows } = fitnessRows(state);
+  const today = R.dayKey(now());
+  const head = '<h3>🏃 体质测试（国家学生体质健康标准）</h3>';
+  if (!grade || !gender || fitEdit) {
+    const g = fitEdit?.gender || p.gender || '';
+    return `<div class="card">${head}<p class="hint">先填性别和现在的年级（每年 9 月 1 日自动升一级），成绩会按国家标准自动评「优秀 / 良好 / 及格」。</p>
+      <div class="flex gap"><button class="pill ${g === 'm' ? 'red' : 'gray'}" data-action="fit-gender" data-g="m">男生</button><button class="pill ${g === 'f' ? 'red' : 'gray'}" data-action="fit-gender" data-g="f">女生</button>
+      <select id="fit-grade">${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}" ${(grade || 1) === n ? 'selected' : ''}>${GRADE_CN[n]}年级</option>`).join('')}</select></div>
+      <button class="btn green" data-action="fit-profile-save">保存</button></div>`;
+  }
+  const lbl = (d) => d.slice(5).replace('-', '/');
+  return `<div class="card">${head}
+    <div class="flex"><span>${gender === 'f' ? '女生' : '男生'} · ${GRADE_CN[grade]}年级</span><button class="link" data-action="fit-profile-edit">修改</button></div>
+    <div class="form3"><input id="fit-date" type="date" value="${today}" max="${today}">
+      <select id="fit-item">${rows.map((r) => `<option value="${r.k}">${r.it.name}</option>`).join('')}</select>
+      <input id="fit-value" inputmode="decimal" placeholder="成绩"></div>
+    <button class="btn green" data-action="fit-add">记录成绩</button>
+    <p class="hint">跳绳、仰卧起坐填次数；坐位体前屈填厘米（够不到脚尖可以填负数）；50 米跑填秒。</p>
+    ${rows.map((r) => {
+      const row = r.it[gender][grade];
+      return `<div class="fitblock"><div class="fitrow"><b>${r.it.name}</b>${r.best ? `<span>最好 ${fmtFit(r.k, r.best.value)}${r.it.unit}</span><span class="lv lv${r.lv.level}">${LEVEL_TAG[r.lv.level]}</span>` : '<span class="sub">未测</span>'}</div>
+        <p class="hint">标准：优秀 ${row[0]} · 良好 ${row[1]} · 及格 ${row[2]}（${r.it.unit}${r.it.better === 'low' ? '，越少越好' : ''}）${fitnessGoal(r) ? `；${fitnessGoal(r)}` : ''}</p>
+        ${r.recs.length > 1 ? lineChart(r.recs.map((f) => ({ y: f.value, label: lbl(f.date) })), '#4d9ef2', `${r.it.name} ${r.it.unit}`, row[1], FIT_STEP1(r.k) ? 0 : 1) : ''}
+        ${[...r.recs].reverse().slice(0, 5).map((f) => `<div class="flex small"><span>${f.date}</span><span>${fmtFit(r.k, f.value)}${r.it.unit} <button class="x" data-action="fit-del" data-key="${f.date}|${f.item}|${f.value}">✕</button></span></div>`).join('')}</div>`;
+    }).join('')}</div>`;
+}
+let fitEdit = null;
+
+// ---------- 角色卡 ----------
+const RARITY = (id) => (R.CARD_HEROES.includes(id) ? ['主角', 'r1'] : R.CARD_HASHIRA.includes(id) ? ['柱', 'r2'] : ['上弦·鬼', 'r3']);
+function cardAlbum() {
+  const counts = R.cardCounts(state);
+  const got = R.CARD_ALL.filter((id) => counts[id]).length;
+  const cells = R.CARD_ALL.map((id) => {
+    const [rar, cls] = RARITY(id);
+    if (!counts[id]) return `<div class="acard locked ${cls}"><div class="q">?</div><small>${R.BOSSES.includes(id) ? '讨伐获得' : '???'}</small></div>`;
+    return `<div class="acard ${cls}">${CH.charHTML(id)}<b>${CH.CHARS[id].name}</b><small>${rar}${counts[id] > 1 ? ` ×${counts[id]}` : ''}</small></div>`;
+  }).join('');
+  return `<div class="card"><h3>🃏 角色图鉴 <span class="gold small">${got} / ${R.CARD_ALL.length}</span></h3>
+    <p class="hint">连续修炼每满 ${R.CARD_STREAK_EVERY} 天、每周测量身体，各抽一张主角或柱；讨伐大鬼成功，得到大鬼卡。重复的卡 +${R.CARD_DUP_STARS}⭐，集齐全部 +${R.CARD_SET_STARS}⭐！</p>
+    <div class="album">${cells}</div></div>`;
+}
+
+let cardQueue = [];
+function showCards() {
+  if (!cardQueue.length || $('#overlay').innerHTML || document.querySelector('.cardreveal') || tab === 'parent') return;
+  const d = cardQueue.shift();
+  const counts = R.cardCounts(state);
+  const id = d.card, [rar, cls] = RARITY(id);
+  const dup = (counts[id] || 0) > 1;
+  const got = R.CARD_ALL.filter((x) => counts[x]).length;
+  const why = d.kind === 'streak' ? `连续修炼 ${d.n} 天` : d.kind === 'measure' ? '完成本周身体测量' : `讨伐${CH.CHARS[id].name}成功`;
+  const full = got === R.CARD_ALL.length && !dup;
+  const el = document.createElement('div');
+  el.className = 'cardreveal';
+  el.innerHTML = `<div class="cr-in"><p class="gold">🃏 ${why}，获得角色卡！</p>
+    <div class="flipcard ${cls}"><div class="fc-back">鬼</div><div class="fc-front">${CH.charHTML(id, CH.CHARS[id].poses.cheer ? 'cheer' : 'idle')}<b>${CH.CHARS[id].name}</b><small>${rar}</small></div></div>
+    <p>${dup ? `重复卡，换成 ${R.CARD_DUP_STARS} 颗⭐` : `新卡！图鉴 ${got} / ${R.CARD_ALL.length}`}</p>
+    ${full ? `<p class="gold">🎉 集齐全部角色卡！额外 +${R.CARD_SET_STARS}⭐</p>` : ''}
+    <button class="btn red" data-action="card-ok">收下</button></div>`;
+  document.body.appendChild(el);
+  FX.sfx.gift();
+  setTimeout(() => { el.querySelector('.flipcard')?.classList.add('flip'); FX.confetti(full ? 120 : 40); if (!R.BOSSES.includes(id)) VO.play(`line-${id}-0`); }, 500);
 }
 
 function raidWall() {
@@ -321,6 +430,8 @@ function parentView() {
       <p class="hint">腰围/身高：一般认为儿童低于 0.5 较理想；儿童 BMI 要按年龄和性别对照。都仅供参考，以儿保医生评估为准。理想趋势：身高在长、腰围不变或变细。</p>
       ${[...bodies].reverse().map((b) => `<div class="flex small"><span>${b.date}</span><span>${fmtB(b)} <button class="x" data-action="del-body" data-date="${b.date}">✕</button></span></div>`).join('')}`
       : '<p class="sub">还没有记录。</p>'}</div>
+
+  ${fitnessParentCard()}
 
   <div class="card"><h3>补卡（每周最多 1 次，无早睡奖励）</h3>
     ${cands.length ? cands.map((d) => `<button class="row-btn" data-action="makeup" data-day="${R.dayKey(d)}">📅 补登 ${d.getMonth() + 1}月${d.getDate()}日 周${'日一二三四五六'[d.getDay()]}</button>`).join('') : '<p class="sub">最近 7 天没有可补的日子（或本周已补过）。</p>'}</div>
@@ -598,6 +709,13 @@ function render() {
   }
   const raid = R.syncRaid(state, now());
   if (raid) { state.bonuses.push(raid); persist(); toast(`讨伐成功！打败了${CH.CHARS[raid.boss].name}，额外 +3 ⭐`, true); VO.play('crow-raidwin', '讨伐成功！'); }
+  const due = R.cardsDue(state, now());
+  if (due.length) {
+    const at = now().toISOString();
+    for (const d of due) state.cards.push({ key: d.key, card: d.card, date: at });
+    persist();
+    cardQueue.push(...due);
+  }
   const views = { home: homeView, ranks: ranksView, rewards: rewardsView, parent: parentView };
   $('#app').innerHTML = views[tab]();
   $('#tabs').innerHTML = tabsHTML();
@@ -609,6 +727,7 @@ function render() {
   celebrateProgress();
   if (tab !== 'home') document.querySelector('.crow')?.remove();
   maybeCrow();
+  setTimeout(showCards, 300);
 }
 
 // 告诉原生外壳：现在按返回键是否由网页处理（有弹层或不在首页）
@@ -849,6 +968,29 @@ const actions = {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   },
   'toggle-sound': () => { FX.setMuted(!FX.muted()); if (FX.muted()) VO.stop(); BGM.refresh(); render(); if (!FX.muted()) FX.sfx.pop(); },
+  'fit-gender': (el) => { fitEdit = { gender: el.dataset.g }; render(); },
+  'fit-profile-edit': () => { fitEdit = { gender: state.profile.gender }; render(); },
+  'fit-profile-save': () => {
+    const gender = fitEdit?.gender || state.profile.gender;
+    if (!gender) return toast('请先选男生或女生');
+    state.profile.gender = gender; state.profile.grade = Number($('#fit-grade').value); state.profile.gradeSetAt = R.dayKey(now());
+    fitEdit = null; persist(); render(); toast('已保存');
+  },
+  'fit-add': () => {
+    const item = $('#fit-item').value, date = $('#fit-date').value, v = Number($('#fit-value').value.trim());
+    const grade = R.gradeAt(state.profile, R.dateFromKey(date)) || R.gradeAt(state.profile, now());
+    const rec = R.cleanFitness([{ date, item, value: v, grade }], now())[0];
+    if (!$('#fit-value').value.trim() || !rec) return toast('成绩填得不对，请检查');
+    state.fitness = R.cleanFitness([...state.fitness, rec], now()); persist(); render();
+    const lv = R.fitnessLevel(item, grade, state.profile.gender, rec.value);
+    toast(`已记录：${R.FITNESS_ITEMS[item].name} ${rec.value}${R.FITNESS_ITEMS[item].unit}${lv ? `，${R.FITNESS_LEVELS[lv.level]}` : ''}`);
+  },
+  'fit-del': (el) => {
+    if (!confirm('删除这条成绩？')) return;
+    const i = state.fitness.findIndex((f) => `${f.date}|${f.item}|${f.value}` === el.dataset.key);
+    if (i >= 0) { state.fitness.splice(i, 1); persist(); render(); }
+  },
+  'card-ok': () => { document.querySelector('.cardreveal')?.remove(); render(); },
   'bgm-toggle': () => { BGM.setOn(!BGM.settings().on); render(); },
   'bgm-quick': () => {
     if (FX.muted()) return toast('动画音效已关闭，请到家长页打开');
@@ -917,7 +1059,7 @@ if ('serviceWorker' in navigator && ['gdutboy.github.io', 'localhost'].includes(
 navigator.storage?.persist?.();
 
 if (SYNC.isViewer()) {
-  VIEW.start({ lineChart, star, seal, esc, logSummary, toast, now, afterRender: syncBack });
+  VIEW.start({ lineChart, star, seal, esc, logSummary, toast, now, afterRender: syncBack, fitnessKidCard });
   syncBack();
 } else {
   SYNC.initSync({ getState: () => state, replaceState: (s) => { state = s; save(state); }, isEmpty, render, toast });

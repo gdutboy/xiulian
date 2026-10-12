@@ -421,3 +421,140 @@ export function crowMessage({ now, start, end, logged, measured, raid }, seenIds
   if (raid && !raid.defeated && raid.damage * 2 >= raid.target) list.push({ id: 'raid', text: '嘎！大鬼快撑不住了，继续进攻！' });
   return list.find((m) => !seenIds.includes(m.id)) || null;
 }
+
+// ---------- 角色卡图鉴 ----------
+// 拿卡方式：连续修炼每满 3 天抽 1 张（主角/柱）；每周身体测量抽 1 张；讨伐成功必得该周大鬼卡。
+// 抽到哪张由「事件编号」的哈希决定（两台手机算出来一样，同步不冲突）；重复卡 +1⭐；集齐全套 +10⭐。
+export const CARD_EPOCH = '2026-10-12';           // 上线日：之前的历史不补发
+export const CARD_HEROES = ['tanjiro', 'nezuko', 'zenitsu', 'inosuke'];
+export const CARD_HASHIRA = ['giyu', 'rengoku', 'shinobu', 'mitsuri', 'muichiro', 'tengen', 'gyomei', 'sanemi', 'obanai'];
+export const CARD_ALL = [...CARD_HEROES, ...CARD_HASHIRA, ...BOSSES];
+export const CARD_STREAK_EVERY = 3;
+export const CARD_DUP_STARS = 1;
+export const CARD_SET_STARS = 10;
+const CARD_KEY = /^(streak|measure|raid):\d{4}-\d{2}-\d{2}$/;
+
+function hashStr(s) {
+  let h = 2166136261;
+  for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
+  h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
+  return h >>> 0;
+}
+
+/** 抽卡结果（确定性）：主角权重 3，柱权重 2。 */
+export function cardFor(key) {
+  const pool = [...CARD_HEROES.map((id) => [id, 3]), ...CARD_HASHIRA.map((id) => [id, 2])];
+  const total = pool.reduce((s, [, w]) => s + w, 0);
+  let r = hashStr(key) % total;
+  for (const [id, w] of pool) { if (r < w) return id; r -= w; }
+  return pool[0][0];
+}
+
+/** 校验并去重已获得的卡。 */
+export function cleanCards(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set(), out = [];
+  for (const c of raw) {
+    if (!c || typeof c.key !== 'string' || !CARD_KEY.test(c.key) || seen.has(c.key)) continue;
+    const kind = c.key.split(':')[0];
+    const ok = kind === 'raid' ? BOSSES.includes(c.card) : c.card === cardFor(c.key);
+    if (!ok) continue;
+    seen.add(c.key);
+    out.push({ key: c.key, card: c.card, date: typeof c.date === 'string' ? c.date : '' });
+  }
+  return out;
+}
+
+/** 还没发的卡（幂等）：返回 [{ key, card, kind, n? }]，按时间顺序。 */
+export function cardsDue(state, now) {
+  const today = dayKey(now);
+  const have = new Set((state.cards || []).map((c) => c.key));
+  const due = [];
+  // 连续修炼：按日期顺序算每天结束时的连续天数，满 3 的倍数发一张
+  const days = Object.keys(state.logs || {}).filter((k) => isRealDayKey(k) && k <= today).sort();
+  let run = 0, prev = null;
+  for (const k of days) {
+    run = prev && dayKey(addDays(dateFromKey(prev), 1)) === k ? run + 1 : 1;
+    prev = k;
+    if (k >= CARD_EPOCH && run % CARD_STREAK_EVERY === 0) due.push({ key: `streak:${k}`, card: cardFor(`streak:${k}`), kind: 'streak', n: run });
+  }
+  const epochWeek = weekKey(dateFromKey(CARD_EPOCH));
+  for (const b of state.bonuses || []) {
+    if (b.week < epochWeek) continue;
+    if (b.kind === 'measure') due.push({ key: `measure:${b.week}`, card: cardFor(`measure:${b.week}`), kind: 'measure' });
+    if (b.kind === 'raid' && BOSSES.includes(b.boss)) due.push({ key: `raid:${b.week}`, card: b.boss, kind: 'raid' });
+  }
+  return due.filter((d) => !have.has(d.key));
+}
+
+/** 图鉴：每张卡拥有几张。 */
+export function cardCounts(state) {
+  const m = {};
+  for (const c of state.cards || []) m[c.card] = (m[c.card] || 0) + 1;
+  return m;
+}
+
+/** 卡片带来的星星：重复卡每张 +1，集齐全套 +10。 */
+export function cardStars(state) {
+  const counts = cardCounts(state);
+  const dup = Object.values(counts).reduce((s, n) => s + Math.max(0, n - 1), 0) * CARD_DUP_STARS;
+  const full = CARD_ALL.every((id) => counts[id]) ? CARD_SET_STARS : 0;
+  return dup + full;
+}
+
+// ---------- 体质测试（国家学生体质健康标准 2014 修订，小学单项评分表） ----------
+// 来源：教体艺〔2014〕5号 附件表 1-5～1-10、1-13、1-14；4 份政府/学校网站全文转载交叉核对一致。
+// 每格 [优秀(90分), 良好(80分), 及格(60分)]
+export const FITNESS_ITEMS = {
+  rope: { name: '1分钟跳绳', unit: '次', better: 'high', step: 1,
+    m: { 1: [99, 87, 17], 2: [107, 95, 25], 3: [116, 104, 34], 4: [127, 115, 45], 5: [138, 126, 56], 6: [147, 135, 65] },
+    f: { 1: [103, 87, 17], 2: [113, 97, 27], 3: [125, 109, 39], 4: [135, 119, 49], 5: [144, 128, 58], 6: [152, 136, 66] } },
+  sitReach: { name: '坐位体前屈', unit: '厘米', better: 'high', step: 0.1,
+    m: { 1: [13.0, 11.0, 0.0], 2: [13.2, 10.6, -0.4], 3: [13.4, 10.2, -0.8], 4: [13.6, 9.8, -2.2], 5: [13.8, 9.4, -2.6], 6: [14.0, 9.0, -4.0] },
+    f: { 1: [16.0, 13.4, 2.4], 2: [16.3, 13.3, 2.3], 3: [16.6, 13.2, 2.2], 4: [16.9, 13.1, 2.1], 5: [17.2, 13.0, 2.0], 6: [17.5, 12.9, 1.9] } },
+  situp: { name: '1分钟仰卧起坐', unit: '次', better: 'high', step: 1, grades: [3, 4, 5, 6],
+    m: { 3: [42, 36, 16], 4: [43, 37, 17], 5: [44, 38, 18], 6: [45, 39, 19] },
+    f: { 3: [42, 36, 16], 4: [43, 37, 17], 5: [44, 38, 18], 6: [45, 39, 19] } },
+  run50: { name: '50米跑', unit: '秒', better: 'low', step: 0.1,
+    m: { 1: [10.4, 10.6, 12.6], 2: [9.8, 10.0, 12.0], 3: [9.3, 9.5, 11.5], 4: [8.9, 9.1, 11.1], 5: [8.6, 8.8, 10.8], 6: [8.4, 8.6, 10.6] },
+    f: { 1: [11.2, 11.8, 13.8], 2: [10.2, 10.8, 12.8], 3: [9.4, 10.0, 12.0], 4: [8.9, 9.5, 11.5], 5: [8.5, 9.1, 11.1], 6: [8.4, 9.0, 11.0] } },
+};
+export const FITNESS_LEVELS = ['优秀', '良好', '及格', '不及格'];
+const FIT_RANGE = { rope: [0, 400], sitReach: [-30, 40], situp: [0, 100], run50: [5, 30] };
+
+/** 每年 9 月 1 日升一个年级：按设置时的年级推算当前年级；超出 1–6 返回 null。 */
+export function gradeAt(profile, date) {
+  const g = Number(profile?.grade), set = profile?.gradeSetAt;
+  if (!Number.isInteger(g) || g < 1 || g > 6 || !isRealDayKey(set)) return null;
+  const sy = (d) => (d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1);
+  const cur = g + sy(date) - sy(dateFromKey(set));
+  return cur >= 1 && cur <= 6 ? cur : null;
+}
+
+/** 该年级/性别下这个项目是否计分。 */
+export const fitnessApplies = (item, grade) => !!FITNESS_ITEMS[item] && !!grade && (!FITNESS_ITEMS[item].grades || FITNESS_ITEMS[item].grades.includes(grade));
+
+/** 评级：返回 { level: 0优秀|1良好|2及格|3不及格, next: 下一档门槛|null } */
+export function fitnessLevel(item, grade, gender, value) {
+  const it = FITNESS_ITEMS[item];
+  const row = it?.[gender === 'f' ? 'f' : 'm']?.[grade];
+  if (!row || !Number.isFinite(value)) return null;
+  const ok = (t) => (it.better === 'high' ? value >= t : value <= t);
+  const level = row.findIndex(ok);
+  const lv = level < 0 ? 3 : level;
+  return { level: lv, next: lv > 0 ? row[lv - 1] : null, row };
+}
+
+/** 校验体测记录：[{ date, item, value, grade }] */
+export function cleanFitness(raw, today) {
+  if (!Array.isArray(raw)) return [];
+  const tk = dayKey(today), out = [];
+  for (const x of raw) {
+    if (!x || !FITNESS_ITEMS[x.item] || !isRealDayKey(x.date) || x.date > tk) continue;
+    const v = Number(x.value), [lo, hi] = FIT_RANGE[x.item];
+    if (!Number.isFinite(v) || v < lo || v > hi) continue;
+    const g = Number(x.grade);
+    out.push({ date: x.date, item: x.item, value: Math.round(v * 10) / 10, grade: Number.isInteger(g) && g >= 1 && g <= 6 ? g : null });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}

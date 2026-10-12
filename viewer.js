@@ -90,14 +90,15 @@ function logsTab() {
 
 function growthTab() {
   const bodies = [...view.bodies].sort((a, b) => a.date.localeCompare(b.date));
-  if (!bodies.length) return '<div class="card"><h3>成长记录</h3><p class="sub">还没有测量记录（在孩子的手机「家长」页录入）。</p></div>';
+  const fit = H.fitnessKidCard ? H.fitnessKidCard(view) : '';
+  if (!bodies.length) return fit + '<div class="card"><h3>成长记录</h3><p class="sub">还没有测量记录（在孩子的手机「家长」页录入）。</p></div>';
   const lbl = (d) => d.slice(5).replace('-', '/');
   const pts = (f) => bodies.filter((b) => b[f] != null).map((b) => ({ y: b[f], label: lbl(b.date) }));
   const whtPts = bodies.map((b) => ({ y: R.waistToHeight(bodies, b), label: lbl(b.date) })).filter((p) => p.y != null);
   const lastOf = (f) => [...bodies].reverse().find((b) => b[f] != null);
   const lw = lastOf('w'), lwa = lastOf('waist'), lh = lastOf('h');
   const bmi = R.bmiOf(bodies, lw), wht = R.waistToHeight(bodies, lwa);
-  return `<div class="card"><h3>成长记录</h3>
+  return fit + `<div class="card"><h3>成长记录</h3>
     <p><b>最新：</b>${lw ? `体重 ${lw.w} kg（${lbl(lw.date)}）` : ''}${lwa ? ` · 腰围 ${lwa.waist} cm（${lbl(lwa.date)}）` : ''}${lh ? ` · 身高 ${lh.h} cm（${lbl(lh.date)}）` : ''}
       ${bmi != null ? `<br>BMI ${bmi.toFixed(1)}` : ''}${wht != null ? `${bmi != null ? ' · ' : '<br>'}腰围/身高 ${wht.toFixed(2)}` : ''}</p>
     ${H.lineChart(pts('waist'), '#f2b84d', '腰围 cm')}${H.lineChart(whtPts, '#4d9ef2', '腰围/身高', 0.5, 2)}${H.lineChart(pts('w'), '#cc1a33', '体重 kg')}${H.lineChart(pts('h'), '#1f8561', '身高 cm')}
