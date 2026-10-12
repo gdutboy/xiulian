@@ -6,6 +6,7 @@ import * as CH from './chars.js';
 import * as VO from './voices.js';
 import * as SYNC from './sync.js';
 import * as VIEW from './viewer.js';
+import * as BGM from './bgm.js';
 
 // ---------- 状态 ----------
 let state = load(globalThis.localStorage, window.__fakeNow ? new Date(window.__fakeNow) : new Date());
@@ -347,6 +348,8 @@ function parentView() {
     <p class="hint">10–80 颗星，一周内得到的星星就是对大鬼的伤害，打空血条额外 +3 ⭐。</p>
     <div class="flex"><span>动画音效</span><button class="pill ${FX.muted() ? 'gray' : 'red'}" data-action="toggle-sound">${FX.muted() ? '🔇 已关闭' : '🔊 已开启'}</button></div></div>
 
+  ${bgmCard()}
+
   ${SYNC.cardHTML()}
 
   <div class="card"><h3>数据备份</h3>
@@ -354,6 +357,17 @@ function parentView() {
     ${!NV.isNative() || NV.has('export') ? '<button class="btn green" data-action="export">导出备份文件</button>' : '<p class="hint">此版本暂不支持导出备份。</p>'}
     <label class="btn gray file">从备份恢复<input type="file" id="import-file" accept="application/json,.json"></label>
     <button class="btn danger" data-action="reset-pin">重设家长密码</button></div>`;
+}
+
+function bgmCard() {
+  const b = BGM.settings();
+  return `<div class="card"><h3>🎵 背景音乐</h3>
+    <div class="flex"><span>背景音乐</span><button class="pill ${b.on ? 'red' : 'gray'}" data-action="bgm-toggle">${b.on ? '🎵 已开启' : '🔇 已关闭'}</button></div>
+    <div class="flex"><span>音量</span><input id="bgm-vol" type="range" min="0" max="100" value="${Math.round(b.vol * 100)}" style="width:60%"></div>
+    <p class="small">平时播放：<b>${b.customName ? esc(b.customName) : '原创和风配乐'}</b>（睡前拉伸时换成安静的曲子）</p>
+    <label class="btn gray file">选择自己的歌曲<input type="file" id="bgm-file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac"></label>
+    ${b.customName ? '<button class="btn gray" data-action="bgm-clear">换回原创配乐</button>' : ''}
+    <p class="hint">支持 mp3、m4a 等普通音乐文件，只保存在这台手机里。网易云、QQ 音乐会员下载的加密文件（.ncm 等）放不出来。「动画音效」关闭时背景音乐也不播放。</p></div>`;
 }
 
 function reminderRow() {
@@ -493,6 +507,7 @@ const keepAwake = (on) => NV.keepAwake(on);
 function openStretch() {
   stretch = { i: 0, left: R.STRETCH[0].seconds, running: false, started: false, done: false, timer: null };
   VO.preload([...R.STRETCH.map((_, i) => `stretch-${i}`), 'stretch-321', 'stretch-done']);
+  BGM.setScene('calm');
   renderOverlay();
 }
 
@@ -502,6 +517,7 @@ function closeStretch() {
   keepAwake(false);
   VO.stop();
   stretch = null;
+  BGM.setScene('main');
 }
 
 function stretchAdvance() {
@@ -565,7 +581,8 @@ function tabsHTML() {
 }
 
 function render() {
-  if (SYNC.isViewer()) { VIEW.render(); return; }
+  if (SYNC.isViewer()) { BGM.setScene('off'); VIEW.render(); return; }
+  BGM.setScene(stretch ? 'calm' : 'main');
   if (!state.profile.name) {
     $('#app').innerHTML = setupView();
     $('#tabs').innerHTML = '';
@@ -824,7 +841,9 @@ const actions = {
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   },
-  'toggle-sound': () => { FX.setMuted(!FX.muted()); if (FX.muted()) VO.stop(); render(); if (!FX.muted()) FX.sfx.pop(); },
+  'toggle-sound': () => { FX.setMuted(!FX.muted()); if (FX.muted()) VO.stop(); BGM.refresh(); render(); if (!FX.muted()) FX.sfx.pop(); },
+  'bgm-toggle': () => { BGM.setOn(!BGM.settings().on); render(); },
+  'bgm-clear': async () => { await BGM.clearSong(); render(); toast('已换回原创配乐'); },
   'reset-pin': () => {
     if (!confirm('会清除当前家长密码并退出家长页，下次进入时重新设置。确定吗？')) return;
     state.settings.pin = ''; persist(); parentUnlocked = false; pin = null; render();
@@ -856,6 +875,14 @@ document.addEventListener('change', async (e) => {
   if (e.target.id === 's-remind') {
     const [h, m] = e.target.value.split(':').map(Number);
     if (NV.getReminder() >= 0 && h * 60 + m >= 0) applyReminder(h * 60 + m, `每晚 ${e.target.value} 会提醒打卡`);
+    return;
+  }
+  if (e.target.id === 'bgm-vol') { BGM.setVolume(e.target.value / 100); return; }
+  if (e.target.id === 'bgm-file' && e.target.files[0]) {
+    toast('正在读取歌曲…');
+    const r = await BGM.importSong(e.target.files[0]).catch(() => 'bad');
+    toast({ ok: '已设为背景音乐', ncm: '这是会员加密格式（.ncm 等），放不出来，请换 mp3 或 m4a 文件', big: '文件太大了（超过 40MB）', bad: '这个文件放不出来，请换 mp3 或 m4a 文件' }[r]);
+    if (r === 'ok') render();
     return;
   }
   if (e.target.id !== 'import-file' || !e.target.files[0]) return;

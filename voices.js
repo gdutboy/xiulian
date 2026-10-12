@@ -2,6 +2,7 @@
 // 同一时刻只播一段；静音时不播也不预加载；文件缺失或解码失败时退回系统朗读。
 import * as FX from './fx.js';
 import * as NV from './native.js';
+import * as BGM from './bgm.js';
 
 const raw = new Map();      // key -> Promise<ArrayBuffer>
 const decoded = new Map();  // key -> AudioBuffer
@@ -36,6 +37,7 @@ function stopCurrent() {
     try { c.src.onended = null; c.src.stop(); } catch { /* 已停 */ }
     try { c.gain.disconnect(); } catch { /* 忽略 */ }
     state.active = Math.max(0, state.active - 1);
+    BGM.duck(false);
     c.done(false);
   }
 }
@@ -101,12 +103,13 @@ export async function play(key, fallbackText = '') {
     const c = { src, gain, done: resolve };
     src.onended = () => {
       if (cur !== c) return;
-      cur = null; state.active = Math.max(0, state.active - 1);
+      cur = null; state.active = Math.max(0, state.active - 1); BGM.duck(false);
       try { gain.disconnect(); } catch { /* 忽略 */ }
       resolve(true);
     };
     cur = c;
     state.active++;
+    BGM.duck(true);
     src.start();
   });
 }
