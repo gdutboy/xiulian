@@ -24,8 +24,9 @@ export const state = { get scene() { return scene; }, get playing() { return pla
 window.__bgmState = state;
 
 // 内置歌曲（只有自用安卓包里有，由 build-native 注入）
-const builtin = window.__xiulianBuiltinBgm || null;
-const mainUrl = () => customUrl || builtin?.url || '';
+let builtin = window.__xiulianBuiltinBgm || null;   // 安卓自用包内置；网页版登录后从家里服务器下载（见 ensureAccountSong）
+let accountUrl = '';
+const mainUrl = () => customUrl || builtin?.url || accountUrl || '';
 const SONG_LEVEL = 0.45;   // 成品歌曲本身很响，压到和角色语音协调的程度
 
 export const settings = () => ({ ...set, customName, builtinName: builtin?.name || '' });
@@ -61,7 +62,22 @@ async function loadCustom() {
   try {
     const rec = await idb('readonly', (s) => s.get('main'));
     if (rec?.blob) { customName = rec.name; if (customUrl) URL.revokeObjectURL(customUrl); customUrl = URL.createObjectURL(rec.blob); }
+    const acc = await idb('readonly', (s) => s.get('account'));
+    if (acc?.blob && !builtin) { builtin = { name: acc.name }; accountUrl = URL.createObjectURL(acc.blob); }
   } catch { /* 不支持 IndexedDB 就只用原创配乐 */ }
+}
+
+/** 网页版：登录后从家里服务器取账号专属歌曲，存进本机，只下载一次。fetcher() → { blob, name } | null */
+export async function ensureAccountSong(fetcher) {
+  if (builtin) return;
+  try {
+    const got = await fetcher();
+    if (!got?.blob || got.blob.size < 100000) return;
+    await idb('readwrite', (s) => s.put({ name: got.name, blob: got.blob }, 'account'));
+    builtin = { name: got.name }; accountUrl = URL.createObjectURL(got.blob);
+    restart();
+    return got.name;
+  } catch { /* 离线或没有授权就继续用原创配乐 */ }
 }
 
 /** 导入一首歌：先试播能不能解码，能才保存。返回 'ok' | 'ncm' | 'big' | 'bad' */

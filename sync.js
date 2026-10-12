@@ -47,6 +47,17 @@ export async function api(method, path, body, { timeout = 15000, keepalive = fal
   } finally { clearTimeout(timer); }
 }
 
+/** 取账号专属背景音乐（家里服务器上的，非公开）。没有就返回 null。 */
+export async function fetchSong() {
+  if (!cfg.token) return null;
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 120000);
+  try {
+    const r = await fetch(`${API}/v1/bgm/main`, { headers: { Authorization: `Bearer ${cfg.token}` }, signal: ctl.signal });
+    if (!r.ok) return null;
+    return { blob: await r.blob(), name: decodeURIComponent(r.headers.get('X-Song-Name') || '背景音乐') };
+  } catch { return null; } finally { clearTimeout(t); }
+}
+
 const errText = (r) => r?.data?.error || `服务器返回 ${r?.status}`;
 const timeText = (iso) => { if (!iso) return ''; const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -203,6 +214,7 @@ export const actions = {
       saveCfg(); form = null;
       hooks.render();
       sync();
+      window.dispatchEvent(new Event('xiulian-login'));
     } catch (e) {
       form.error = e?.name === 'AbortError' ? '连接服务器超时，请检查网络' : '连不上服务器，请检查网络';
     } finally {
