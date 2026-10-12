@@ -1,5 +1,5 @@
 // 本地存储：所有数据只保存在这台设备的浏览器里。
-import { DEFAULT_START, DEFAULT_END, DEFAULT_EXERCISES, DEFAULT_REWARDS, normalizeList, cleanBodies, cleanBonuses } from './rules.js';
+import { DEFAULT_START, DEFAULT_END, DEFAULT_EXERCISES, DEFAULT_REWARDS, normalizeList, cleanBodies, cleanBonuses, cleanRaidTarget, RAID_DEFAULT } from './rules.js';
 
 const KEY = 'xiulian.v1';
 
@@ -7,7 +7,7 @@ function fresh() {
   return {
     version: 1,
     profile: { name: '' },
-    settings: { start: DEFAULT_START, end: DEFAULT_END, pin: '', exercises: [...DEFAULT_EXERCISES] },
+    settings: { start: DEFAULT_START, end: DEFAULT_END, pin: '', exercises: [...DEFAULT_EXERCISES], raidTarget: RAID_DEFAULT },
     logs: {},          // dayKey -> log
     rewards: DEFAULT_REWARDS.map(([name, cost], i) => ({ id: `r${Date.now()}${i}`, name, cost })),
     redemptions: [],   // {name, cost, date}
@@ -27,6 +27,7 @@ export function sanitize(raw, today = new Date()) {
   s.logs = raw.logs && typeof raw.logs === 'object' ? raw.logs : {};
   s.rewards = Array.isArray(raw.rewards) ? raw.rewards : base.rewards;
   s.redemptions = Array.isArray(raw.redemptions) ? raw.redemptions : [];
+  s.settings.raidTarget = cleanRaidTarget(s.settings.raidTarget) ?? RAID_DEFAULT;
   s.bodies = cleanBodies(raw.bodies, today);
   s.bonuses = cleanBonuses(raw.bonuses, today);
   return s;

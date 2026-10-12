@@ -126,3 +126,80 @@ input[type=time],input[type=date]{width:auto;color-scheme:dark}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}#sky{display:none}}
 .form2b{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .body-card p{margin:6px 0;line-height:1.5}.body-card .progress{font-weight:800}
+/* ---------- 角色 ---------- */
+.char{position:relative;display:inline-block;line-height:0}
+.char img{height:100%;width:auto;display:block;user-select:none;-webkit-user-drag:none}
+.char .sil{display:none;height:100%;min-height:60px;aspect-ratio:.6;flex-direction:column;align-items:center;justify-content:flex-end;line-height:1.2}
+.char .sil i{display:block;width:55%;aspect-ratio:1;border-radius:50%;background:var(--c)}
+.char .sil i::after{content:"";display:block;width:150%;margin:8% -25% 0;aspect-ratio:1.3;border-radius:40% 40% 18% 18%;background:var(--c)}
+.char .sil b{font-size:11px;color:#fff;margin-top:4px;white-space:nowrap}
+.char.noimg img{display:none}.char.noimg .sil,.char:not(:has(img)) .sil{display:flex}
+/* 切入 */
+.ci{position:absolute;left:0;right:0;top:30%;height:230px;pointer-events:none}
+.ci .ci-img{position:absolute;bottom:0;height:210px;animation:ciIn 1.3s cubic-bezier(.2,.8,.3,1) forwards}
+.ci-left .ci-img{left:0}.ci-right .ci-img{right:0;transform:scaleX(-1)}
+.ci-title{position:absolute;right:0;left:30%;top:30%;white-space:nowrap;font-family:"STKaiti","Kaiti SC","KaiTi","Songti SC",serif;font-weight:900;font-size:24px;color:#fff;text-align:center;
+  text-shadow:0 0 10px rgba(0,0,0,.9),0 2px 0 #000;background:linear-gradient(90deg,transparent,rgba(204,26,51,.85) 15%,rgba(204,26,51,.85) 85%,transparent);padding:6px 0;animation:ciTitle 1.3s ease forwards}
+@keyframes ciIn{0%{transform:translateX(-110%)}22%{transform:translateX(6%)}30%{transform:translateX(0)}78%{opacity:1;transform:translateX(0)}100%{opacity:0;transform:translateX(-30%)}}
+.ci-right .ci-img{animation-name:ciInR}
+@keyframes ciInR{0%{transform:scaleX(-1) translateX(-110%)}22%{transform:scaleX(-1) translateX(6%)}30%{transform:scaleX(-1)}78%{opacity:1}100%{opacity:0;transform:scaleX(-1) translateX(-30%)}}
+@keyframes ciTitle{0%,15%{opacity:0;transform:scaleX(.2)}30%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}
+.bfx{position:absolute;left:0;right:0;top:32%;height:200px;pointer-events:none}
+.bfx svg{width:100%;height:100%;overflow:visible}
+.bfx path,.bfx polyline{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:900;stroke-dashoffset:900;animation:draw .7s ease-out forwards,fadeOut 1s ease forwards}
+.bfx-water path{stroke:#6cc4ff;stroke-width:22;filter:drop-shadow(0 0 8px #4d9ef2)}
+.bfx-thunder polyline{stroke:#ffe14d;stroke-width:12;filter:drop-shadow(0 0 10px #ffd000)}
+.bfx-beast path{stroke:#fff;stroke-width:6}
+.bfx-fire path{stroke:#ff7a1f;stroke-width:26;filter:drop-shadow(0 0 12px #ff3d00)}
+@keyframes draw{to{stroke-dashoffset:0}}@keyframes fadeOut{0%,60%{opacity:1}100%{opacity:0}}
+.flash{position:absolute;inset:0;background:#fff8c0;animation:flash .35s ease forwards}@keyframes flash{0%{opacity:.7}100%{opacity:0}}
+/* 斩鬼过场 */
+.ss{position:absolute;inset:0;background:rgba(0,0,0,.7);pointer-events:auto;animation:ssIn .2s ease}
+@keyframes ssIn{from{opacity:0}}
+.ss-imps{position:absolute;left:0;right:0;top:34%;display:flex;justify-content:center;gap:4px}
+.ss-imp{height:90px;animation:impBob .5s ease-in-out infinite alternate}
+.ss-imp.cut{animation:impCut .6s ease forwards}
+@keyframes impBob{to{transform:translateY(-6px)}}
+@keyframes impCut{0%{filter:brightness(3)}100%{transform:scale(1.4) rotate(15deg);opacity:0;filter:blur(6px) brightness(3)}}
+.ss-hero{position:absolute;left:-10px;bottom:16%;height:200px;animation:heroDash .7s cubic-bezier(.2,.8,.3,1) .25s both}
+.ss-hero .char{height:100%}
+@keyframes heroDash{from{transform:translateX(-120%)}to{transform:translateX(0)}}
+.ss-arc{position:absolute;left:0;top:18%;width:100%;height:300px;overflow:visible}
+.ss-arc path{fill:none;stroke:#fff;stroke-width:10;stroke-linecap:round;filter:drop-shadow(0 0 12px #9fe0ff);stroke-dasharray:700;stroke-dashoffset:700;animation:draw .25s ease-out .6s forwards,fadeOut .9s ease .6s forwards}
+.ss-title{position:absolute;right:16px;top:20%;font-family:"STKaiti","Kaiti SC","KaiTi",serif;font-size:34px;font-weight:900;color:#fff;text-shadow:0 0 12px #4d9ef2;animation:ciTitle 1.4s ease forwards}
+.ss-skip{position:absolute;right:14px;bottom:calc(var(--safe-b) + 24px);background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:999px;padding:8px 14px;font-size:14px}
+/* 鎹鸦 */
+.crow{position:fixed;right:10px;bottom:calc(var(--safe-b) + 92px);z-index:12;display:flex;align-items:flex-start;gap:4px;flex-direction:row-reverse;max-width:80vw;animation:crowIn .8s cubic-bezier(.2,.8,.3,1);cursor:pointer}
+.crow-img{height:62px;filter:drop-shadow(0 0 6px rgba(255,255,255,.55))}
+.crow-say{background:#fff;color:#222;font-weight:800;font-size:14px;border-radius:14px 14px 2px 14px;padding:8px 12px;margin-top:6px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.crow.bye{animation:crowOut .3s ease forwards}
+@keyframes crowIn{from{transform:translate(120%,-80%) rotate(-20deg)}to{transform:none}}
+@keyframes crowOut{to{transform:translate(120%,-60%);opacity:0}}
+/* 首页值班 */
+.hero-wrap{position:relative}
+.hero-in{padding-right:96px}
+.duty{position:absolute;right:2px;bottom:0;height:140px;z-index:2;cursor:pointer;animation:dutyBreath 3s ease-in-out infinite;transform-origin:50% 100%}
+.duty .char{height:100%}
+.duty.act{animation:pop .5s cubic-bezier(.3,1.8,.5,1)}
+@keyframes dutyBreath{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.025)}}
+.say{position:absolute;right:108px;bottom:64px;z-index:3;background:#fff;color:#222;font-weight:800;font-size:14px;border-radius:14px 14px 2px 14px;padding:8px 12px;max-width:62%;box-shadow:0 4px 12px rgba(0,0,0,.4);animation:pop .4s ease}
+/* 讨伐 */
+.raid{display:flex;gap:12px;align-items:center}
+.raid .char{height:92px;flex:none}
+.raid.down .char{filter:grayscale(1) brightness(.7);transform:rotate(-12deg)}
+.hp{height:12px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden;margin:6px 0}
+.hp i{display:block;height:100%;background:linear-gradient(90deg,#cc1a33,#ff6b4a);transition:width .8s ease}
+.raidwall{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.raidwall .char{height:64px}
+.raidwall span.w{text-align:center;font-size:11px;color:var(--sub)}
+/* 授阶 / 拉伸 / 庆祝 */
+.present{display:flex;justify-content:center;align-items:flex-end;gap:6px;height:150px;margin:6px 0}
+.present .char{height:100%;animation:presentIn .7s cubic-bezier(.2,.8,.3,1) .2s both}
+@keyframes presentIn{from{transform:translateY(40px);opacity:0}}
+.stretch-buddy{display:flex;justify-content:center;height:96px;margin-top:6px}
+.stretch-buddy .char{height:100%;animation:pop .5s ease}
+.sleepy{height:120px;display:flex;justify-content:center}.sleepy .char{height:100%}
+.mood-buddy{position:absolute;height:70px;pointer-events:none;animation:moodPop 1s ease forwards}
+.mood-buddy .char{height:100%}
+@keyframes moodPop{0%{transform:translateY(20px) scale(.5);opacity:0}25%{transform:none;opacity:1}75%{opacity:1}100%{opacity:0;transform:translateY(-20px)}}
+@media (prefers-reduced-motion:reduce){.ss{display:none}}

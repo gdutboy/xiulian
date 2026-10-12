@@ -208,6 +208,8 @@ export const STRETCH_TOTAL = STRETCH.reduce((s, m) => s + m.seconds, 0);
 
 export const BODY_FIELDS = { h: [80, 220], w: [15, 150], waist: [40, 150] };
 export const MEASURE_STARS = 1;
+export const RAID_STARS = 3;
+const BONUS_STARS = { measure: 1, raid: 3 };
 const DAY = 86400000;
 const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY);
 export const weeksOf = (days) => Math.max(1, Math.round(days / 7));
@@ -250,17 +252,21 @@ export function cleanBodies(raw, today) {
   return out;
 }
 
-/** 清洗测量奖励：kind 合法、week 是周一且不晚于本周、按周去重、每条 1 星。 */
+/** 清洗奖励：measure（1 星）/ raid（3 星）；week 是周一且不晚于本周；按 kind+week 去重保留第一条。 */
 export function cleanBonuses(raw, today) {
   if (!Array.isArray(raw)) return [];
   const thisWeek = weekKey(today);
   const seen = new Set();
   const out = [];
   for (const x of raw) {
-    if (!x || x.kind !== 'measure' || !isRealDayKey(x.week)) continue;
-    if (weekKey(dateFromKey(x.week)) !== x.week || x.week > thisWeek || seen.has(x.week)) continue;
-    seen.add(x.week);
-    out.push({ kind: 'measure', week: x.week, stars: MEASURE_STARS, date: typeof x.date === 'string' ? x.date : '' });
+    if (!x || !BONUS_STARS[x.kind] || !isRealDayKey(x.week)) continue;
+    if (weekKey(dateFromKey(x.week)) !== x.week || x.week > thisWeek) continue;
+    const k = `${x.kind}:${x.week}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const b = { kind: x.kind, week: x.week, stars: BONUS_STARS[x.kind], date: typeof x.date === 'string' ? x.date : '' };
+    if (x.kind === 'raid') b.boss = BOSSES.includes(x.boss) ? x.boss : bossForWeek(x.week);
+    out.push(b);
   }
   return out;
 }
@@ -271,7 +277,7 @@ const complete = (b) => b && b.w != null && b.waist != null;
 export function measureBonusFor(bodies, bonuses, dateKey, savedAt) {
   const rec = bodies.find((b) => b.date === dateKey);
   const wk = weekKey(dateFromKey(dateKey));
-  if (!complete(rec) || wk !== weekKey(savedAt) || bonuses.some((x) => x.week === wk)) return null;
+  if (!complete(rec) || wk !== weekKey(savedAt) || bonuses.some((x) => x.kind === 'measure' && x.week === wk)) return null;
   return { kind: 'measure', week: wk, stars: MEASURE_STARS, date: savedAt.toISOString() };
 }
 
@@ -343,4 +349,75 @@ export function bodyProgress(bodies, today) {
   const wn = waistNear(Hn.date), wr = waistNear(Hr.b.date);
   if (wn != null && wr != null && wn > wr) return null;
   return { type: 'height', cm: round1(Hn.h - Hr.b.h), weeks: weeksOf(Hr.d), key: `${Hn.date}:height` };
+}
+
+
+// ---------- 每周讨伐 ----------
+
+export const BOSSES = ['rui', 'akaza', 'doma', 'kokushibo', 'muzan'];
+export const RAID_EPOCH = '2026-10-05';
+export const RAID_DEFAULT = 30;
+const utcDay = (k) => { const [y, m, d] = k.split('-').map(Number); return Date.UTC(y, m - 1, d) / DAY; };
+
+/** 按日历日算周数差，避免夏令时错周。 */
+export function bossForWeek(wk) {
+  const n = Math.round((utcDay(wk) - utcDay(RAID_EPOCH)) / 7);
+  return BOSSES[((n % BOSSES.length) + BOSSES.length) % BOSSES.length];
+}
+
+/** 讨伐目标：10–80 的整数，否则 null。 */
+export function cleanRaidTarget(v) {
+  return Number.isInteger(v) && v >= 10 && v <= 80 ? v : null;
+}
+
+export const safeStars = (v) => (Number.isFinite(v) && v >= 0 && v <= MAX_PER_DAY ? v : 0);
+
+export function raidState(state, today) {
+  const week = weekKey(today);
+  const target = cleanRaidTarget(state.settings?.raidTarget) ?? RAID_DEFAULT;
+  let damage = 0;
+  for (const [k, l] of Object.entries(state.logs || {})) {
+    if (isRealDayKey(k) && weekKey(dateFromKey(k)) === week) damage += safeStars(l?.stars);
+  }
+  for (const b of state.bonuses || []) if (b.kind === 'measure' && b.week === week) damage += b.stars;
+  const rewarded = (state.bonuses || []).some((b) => b.kind === 'raid' && b.week === week);
+  return { week, boss: bossForWeek(week), target, damage, hp: Math.max(0, target - damage), defeated: damage >= target, rewarded };
+}
+
+/** 幂等：当前周已打空血条且还没发奖，返回要追加的 raid 奖励，否则 null。 */
+export function syncRaid(state, now) {
+  const r = raidState(state, now);
+  if (!r.defeated || r.rewarded) return null;
+  return { kind: 'raid', week: r.week, boss: r.boss, stars: RAID_STARS, date: now.toISOString() };
+}
+
+// ---------- 角色 ----------
+
+export const ALLIES = ['tanjiro', 'nezuko', 'zenitsu', 'inosuke', 'giyu', 'rengoku', 'shinobu', 'mitsuri', 'muichiro', 'tengen', 'gyomei', 'sanemi', 'obanai'];
+
+/** 今日值班角色：按日期轮换，同一天固定。 */
+export function dutyFor(date) {
+  return ALLIES[((Math.round(utcDay(dayKey(date))) % ALLIES.length) + ALLIES.length) % ALLIES.length];
+}
+
+/** 提交时要斩的小鬼：按种类去重，固定顺序。 */
+export function impsFor(log, submittedAt, isMakeup) {
+  const out = [];
+  if (log.noSugar) out.push('imp-soda');
+  if (isEarlyBed(submittedAt, isMakeup)) out.push('imp-night');
+  if (log.exercise || log.stairs || log.ropeCount > 0) out.push('imp-lazy');
+  if (log.water || log.veggies || (log.extras || []).length) out.push('imp-phone');
+  return out;
+}
+
+/** 鎹鸦消息（按优先级），已看过的跳过；返回 {id, text} 或 null。 */
+export function crowMessage({ now, start, end, logged, measured, raid }, seenIds = []) {
+  const w = windowState(now, start, end).state;
+  const late = minutesOfDay(now) >= EARLY_BED_MINUTES;
+  const list = [];
+  if (w === 'open' && !logged && late) list.push({ id: 'late', text: '嘎！快去修炼，修炼完早点睡！' });
+  if (w === 'open' && !logged && !late) list.push({ id: 'open', text: '嘎！今晚修炼开放啦！' });
+  if (!measured) list.push({ id: 'measure', text: '嘎！这周还没量腰围和体重！' });
+  if (raid && !raid.defeated && raid.damage * 2 >= raid.target) list.push({ id: 'raid', text: '嘎！大鬼快撑不住了，继续进攻！' });
+  return list.find((m) => !seenIds.includes(m.id)) || null;
 }

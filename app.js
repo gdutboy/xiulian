@@ -2,6 +2,7 @@ import * as R from './rules.js';
 import { load, save, ledger, sanitize } from './store.js';
 import * as FX from './fx.js';
 import * as NV from './native.js';
+import * as CH from './chars.js';
 
 // ---------- 状态 ----------
 let state = load(globalThis.localStorage, window.__fakeNow ? new Date(window.__fakeNow) : new Date());
@@ -94,18 +95,22 @@ function homeView() {
   }
   return `
     ${installHint()}
+    <div class="hero-wrap">
     <header class="hero">
       <div class="checker"></div>
       <div class="hero-in">${seal(rank, 62)}
         <div><h1>${esc(childName())}的修炼日记</h1><p class="gold">鬼杀队 · ${rank.name}级 · ${esc(rankTitle(rank))}</p></div>
       </div>
     </header>
+    ${dutyHTML(t, !!log)}
+    </div>
     <div class="row">
       <div class="card stat"><span class="gold small">⭐ 可用星星</span><b>${L.available}</b></div>
       <div class="card stat"><span class="red small">🔥 连续修炼</span><b>${R.currentStreak(keys, t)} 天</b></div>
     </div>
     <div class="card today">${today}</div>
     ${bodyCard(t)}
+    ${raidCard(t)}
     <p class="quote">「${R.wordFor(t)}」</p>`;
 }
 
@@ -125,6 +130,38 @@ function bodyCard(t) {
   return `<div class="card body-card"><h3>💪 身体修炼</h3>${rows.map((r, i) => `<p class="${i === 0 && p ? 'gold progress' : 'sub'}">${r}</p>`).join('')}</div>`;
 }
 
+// 今日值班角色：21:30 后已打卡换成睡觉的祢豆子
+function dutyHTML(t, logged) {
+  const sleep = logged && R.minutesOfDay(t) >= R.EARLY_BED_MINUTES;
+  const id = sleep ? 'nezuko' : R.dutyFor(t);
+  return `<div class="duty" data-action="duty" data-id="${id}" data-sleep="${sleep ? 1 : ''}">${CH.charHTML(id, sleep ? 'sleep' : 'idle')}</div>`;
+}
+
+function raidCard(t) {
+  const r = R.raidState(state, t);
+  const c = CH.CHARS[r.boss];
+  const pct = Math.round((r.hp / r.target) * 100);
+  return `<div class="card"><h3>⚔️ 本周讨伐</h3><div class="raid ${r.defeated ? 'down' : ''}">${CH.charHTML(r.boss)}
+    <div class="grow"><b>${c.name}</b><div class="hp"><i style="width:${pct}%"></i></div>
+    <p class="small ${r.defeated ? 'gold' : 'sub'}">${r.defeated ? '🎉 讨伐成功！额外获得 3 ⭐' : `剩余血量 ${r.hp} / ${r.target}，每颗星都是一刀！`}</p></div></div></div>`;
+}
+
+// 鎹鸦：每天每条消息只来一次
+function crowSeen(t) {
+  try { const v = JSON.parse(localStorage.getItem('xiulian.crowSeen')); if (v?.day === R.dayKey(t)) return v.ids || []; } catch { /* 忽略 */ }
+  return [];
+}
+function maybeCrow() {
+  if (tab !== 'home' || !state.profile.name || $('#overlay').innerHTML || document.querySelector('.crow')) return;
+  const t = now();
+  const seen = crowSeen(t);
+  const m = R.crowMessage({ now: t, start: state.settings.start, end: state.settings.end, logged: !!state.logs[R.dayKey(t)],
+    measured: R.measuredThisWeek(state.bodies, t), raid: R.raidState(state, t) }, seen);
+  if (!m) return;
+  localStorage.setItem('xiulian.crowSeen', JSON.stringify({ day: R.dayKey(t), ids: [...seen, m.id] }));
+  setTimeout(() => { if (tab === 'home' && !$('#overlay').innerHTML) CH.crowBubble(m.text); }, 600);
+}
+
 function celebrateProgress() {
   if (tab !== 'home' || !state.profile.name) return;
   const p = R.bodyProgress(state.bodies, now());
@@ -132,6 +169,7 @@ function celebrateProgress() {
   localStorage.setItem('xiulian.seenProgress', p.key);
   FX.confetti(60);
   FX.burst($('.body-card .progress'), { n: 10, dist: 90 });
+  CH.cutIn('rengoku', 'idle', '心中燃起火焰吧！', 'fire', 'right');
 }
 
 // ---------- 页面：阶级 ----------
@@ -156,7 +194,15 @@ function ranksView() {
         <p class="gold">再拿 ${next.threshold - L.earned} 颗星晋级「${next.name}」</p>` : '<p class="gold">你已经是柱了！继续保持！</p>'}
     </div>
     <div class="card"><h3>呼吸法勋章</h3><p class="hint">最长连续修炼 ${longest} 天</p><div class="badges">${badges}</div></div>
+    <div class="card"><h3>讨伐记录</h3>${raidWall()}</div>
     <div class="card"><h3>晋级之路</h3>${ladder}</div>`;
+}
+
+function raidWall() {
+  const raids = state.bonuses.filter((b) => b.kind === 'raid').sort((a, b) => b.week.localeCompare(a.week));
+  if (!raids.length) return '<p class="hint">每周把大鬼的血条打空，就会记录在这里。</p>';
+  return `<p class="hint">已讨伐 ${raids.length} 只大鬼</p><div class="raidwall">${raids.map((b) =>
+    `<span class="w">${CH.charHTML(b.boss)}<br>${CH.CHARS[b.boss].name}<br>${b.week.slice(5).replace('-', '/')}</span>`).join('')}</div>`;
 }
 
 // ---------- 页面：奖励 ----------
@@ -289,6 +335,8 @@ function parentView() {
     <p class="hint">截止最晚 23:59，且至少比开始晚 1 小时。${NV.has('reminder') ? '' : '网页版没有定时推送提醒，记得每晚提醒孩子打开。'}</p>
     <button class="btn green" data-action="save-time">保存时间</button>
     ${reminderRow()}
+    <div class="flex"><span>每周讨伐目标</span><span class="flex gap"><input id="s-raid" inputmode="numeric" style="width:70px" value="${state.settings.raidTarget}"> 颗星 <button class="pill red" data-action="save-raid">保存</button></span></div>
+    <p class="hint">10–80 颗星，一周内得到的星星就是对大鬼的伤害，打空血条额外 +3 ⭐。</p>
     <div class="flex"><span>动画音效</span><button class="pill ${FX.muted() ? 'gray' : 'red'}" data-action="toggle-sound">${FX.muted() ? '🔇 已关闭' : '🔊 已开启'}</button></div></div>
 
   <div class="card"><h3>数据备份</h3>
@@ -316,10 +364,35 @@ async function applyReminder(minutes, okMsg) {
   return r;
 }
 
+// 跳绳从 0 变成有数时，风柱登场一次
+function ropeStarted(before) {
+  if (before === 0 && draft.answers.ropeCount > 0) { const b = CH.BREATH.rope; CH.cutIn(b.char, 'idle', b.title, b.fx, 'right'); FX.sfx.slash(); }
+}
+
+// 选心情时祢豆子在表情旁冒出来
+function moodBuddy(face) {
+  if (!face || FX.reduced()) return;
+  const r = face.getBoundingClientRect();
+  const d = document.createElement('div');
+  d.className = 'mood-buddy';
+  d.style.left = `${Math.min(innerWidth - 60, r.left + r.width / 2 - 20)}px`;
+  d.style.top = `${r.top - 76}px`;
+  d.innerHTML = CH.charHTML('nezuko', 'cheer');
+  $('#fx').appendChild(d);
+  setTimeout(() => d.remove(), 1000);
+}
+
 // ---------- 打卡弹层 ----------
 function openCheckIn(mode, day) {
   draft = { mode, day, answers: R.emptyAnswers(), result: null, error: '' };
   renderOverlay();
+}
+
+function presenterHTML(rank) {
+  const id = CH.RANK_PRESENTER[rank.name];
+  if (!id) return '';
+  const who = rank.name === '柱' ? CH.charHTML('tanjiro', 'cheer') + CH.charHTML('nezuko', 'cheer') : CH.charHTML(id);
+  return `<div class="present">${who}</div>`;
 }
 
 function checkInHTML() {
@@ -328,7 +401,7 @@ function checkInHTML() {
   if (draft.result) {
     const r = draft.result;
     return `<div class="celebrate"><div class="spark">✨</div><div class="plus">+<span id="plusn">${r.stars}</span> ⭐</div>
-      ${r.newRank ? `${seal(r.newRank, 90).replace('class="seal ', 'class="seal stamp ')}<h2 class="gold">晋级啦！现在是「${r.newRank.name}」级 · ${esc(rankTitle(r.newRank))}</h2>` : `<h2>${isMakeup ? '补卡完成' : '今晚的修炼完成，辛苦啦！'}</h2>`}
+      ${r.newRank ? `${presenterHTML(r.newRank)}${seal(r.newRank, 90).replace('class="seal ', 'class="seal stamp ')}<h2 class="gold">晋级啦！现在是「${r.newRank.name}」级 · ${esc(rankTitle(r.newRank))}</h2>` : `<h2>${isMakeup ? '补卡完成' : '今晚的修炼完成，辛苦啦！'}</h2>`}
       <button class="btn green" data-action="close-overlay">好的</button></div>`;
   }
   const toggles = R.ITEMS.map((i) => `
@@ -375,11 +448,19 @@ function submitCheckIn() {
   state.logs[key] = { dayKey: key, ...draft.answers, extras: [...draft.answers.extras], stars, submittedAt: t.toISOString(), isMakeup };
   persist();
   const r0 = R.rankFor(before), r1 = R.rankFor(before + stars);
+  const raid = R.syncRaid(state, t);
+  if (raid) { state.bonuses.push(raid); persist(); }
   draft.result = { stars, newRank: r1.index > r0.index ? r1 : null };
   renderOverlay();
-  FX.countUp($('#plusn'), stars);
-  FX.confetti(draft.result.newRank ? 110 : 70);
-  if (draft.result.newRank) FX.sfx.levelUp(); else FX.sfx.ding();
+  const res = draft.result;
+  $('#plusn').textContent = '0';
+  CH.slashScene(R.impsFor(state.logs[key], t, isMakeup), () => {
+    if (draft?.result !== res) return;
+    FX.countUp($('#plusn'), stars);
+    FX.confetti(res.newRank ? 110 : 70);
+    if (res.newRank) { FX.sfx.levelUp(); CH.crowBubble('晋级！晋级！'); } else FX.sfx.ding();
+    if (raid) { FX.sfx.bossDown(); toast(`讨伐成功！打败了${CH.CHARS[raid.boss].name}，额外 +3 ⭐`, true); }
+  });
 }
 
 // ---------- 拉伸弹层 ----------
@@ -442,7 +523,7 @@ function stretchToggle() {
 function stretchHTML() {
   const close = '<div class="ohead"><b>全集中·睡前修炼</b><span></span><button class="pill gray" data-action="close-overlay" aria-label="关闭">✕</button></div>';
   if (stretch.done) {
-    return `${close}<div class="celebrate"><div class="spark"><span class="moon">🌙</span></div><div class="zzz"><span>z</span><span>Z</span><span>Z</span></div><h2>修炼完成！</h2><p class="sub">身体放松好了，快去睡觉吧。<br>睡得好，明天会更强！</p>
+    return `${close}<div class="celebrate"><div class="sleepy">${CH.charHTML('nezuko', 'sleep')}</div><div class="spark"><span class="moon">🌙</span></div><div class="zzz"><span>z</span><span>Z</span><span>Z</span></div><h2>修炼完成！</h2><p class="sub">身体放松好了，快去睡觉吧。<br>睡得好，明天会更强！</p>
       <button class="btn green" data-action="close-overlay">晚安</button></div>`;
   }
   const m = R.STRETCH[stretch.i];
@@ -455,7 +536,8 @@ function stretchHTML() {
       <div class="ring-in"><div class="ricon">${m.icon}</div><b class="${stretch.running && stretch.left <= 3 ? 'beat' : ''}">${stretch.left}</b><small>秒</small></div></div>
     <h2 class="center">${m.name}</h2><p class="sub center tip">${m.tip}</p>
     <div class="row"><button class="btn ${stretch.running ? 'gray' : 'green'}" data-action="stretch-toggle">${stretch.running ? '⏸ 暂停' : stretch.started ? '▶️ 继续' : '▶️ 开始'}</button>
-      <button class="btn gray" data-action="stretch-next">⏭ 下一个</button></div>`;
+      <button class="btn gray" data-action="stretch-next">⏭ 下一个</button></div>
+    <div class="stretch-buddy">${CH.charHTML(stretch.i % 2 ? 'nezuko' : 'tanjiro', 'cheer')}</div>`;
 }
 
 // ---------- 渲染 ----------
@@ -471,6 +553,8 @@ function render() {
     syncBack();
     return;
   }
+  const raid = R.syncRaid(state, now());
+  if (raid) { state.bonuses.push(raid); persist(); toast(`讨伐成功！打败了${CH.CHARS[raid.boss].name}，额外 +3 ⭐`, true); }
   const views = { home: homeView, ranks: ranksView, rewards: rewardsView, parent: parentView };
   $('#app').innerHTML = views[tab]();
   $('#tabs').innerHTML = tabsHTML();
@@ -480,6 +564,8 @@ function render() {
   FX.fireflies();
   syncBack();
   celebrateProgress();
+  if (tab !== 'home') document.querySelector('.crow')?.remove();
+  maybeCrow();
 }
 
 // 告诉原生外壳：现在按返回键是否由网页处理（有弹层或不在首页）
@@ -516,12 +602,22 @@ function closeOverlay() {
   render();
 }
 
-function toast(msg) {
+// 提示：重要提示（如讨伐成功）不会被普通提示覆盖，普通提示排在它后面
+const toastQ = [];
+let toastImportant = false;
+function toast(msg, important = false) {
+  if (toastImportant) { toastQ.push([msg, important]); return; }
   const t = $('#toast');
   t.textContent = msg;
   t.classList.add('show');
+  toastImportant = important;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.remove('show'), 2200);
+  toast.timer = setTimeout(() => {
+    t.classList.remove('show');
+    toastImportant = false;
+    const next = toastQ.shift();
+    if (next) setTimeout(() => toast(...next), 200);
+  }, important ? 3000 : 2200);
 }
 
 // ---------- 事件 ----------
@@ -550,7 +646,20 @@ const actions = {
   },
   'hide-install': () => { localStorage.setItem('xiulian.hideInstall', '1'); render(); },
   tab: (el) => { tab = el.dataset.tab; if (tab !== 'parent') { parentUnlocked = false; pin = null; firstPin = null; } render(); window.scrollTo(0, 0); FX.replay($('#app'), 'enter'); },
-  checkin: () => openCheckIn('tonight', now()),
+  checkin: () => { CH.preload(CH.PRELOAD_CHECKIN); openCheckIn('tonight', now()); },
+  duty: (el) => {
+    if (el.dataset.sleep) { CH.crowBubble('嘘……祢豆子睡着了。'); return; }
+    const id = el.dataset.id;
+    el.innerHTML = CH.charHTML(id, CH.CHARS[id].poses.action ? 'action' : (CH.CHARS[id].poses.cheer ? 'cheer' : 'idle'));
+    FX.replay(el, 'act');
+    document.querySelector('.say')?.remove();
+    const line = CH.lineFor(id);
+    const b = document.createElement('div'); b.className = 'say'; b.textContent = line;
+    el.parentNode.appendChild(b);
+    speak(line);
+    clearTimeout(actions.duty.timer);
+    actions.duty.timer = setTimeout(() => { b.remove(); if (el.isConnected) el.innerHTML = CH.charHTML(id); }, 2500);
+  },
   stretch: () => openStretch(),
   'close-overlay': () => closeOverlay(),
   toggle: (el) => {
@@ -558,7 +667,11 @@ const actions = {
     draft.answers[k] = on; renderOverlay();
     const icon = $(`#overlay .toggle[data-k="${k}"] .ticon`);
     FX.replay(icon, on ? 'wiggle' : 'pop');
-    if (on) { FX.burst(icon); FX.sfx.pop(); } else FX.sfx.off();
+    if (on) {
+      FX.burst(icon); FX.sfx.pop();
+      const b = CH.BREATH[k];
+      if (b) { CH.cutIn(b.char, b.pose || 'idle', b.title, b.fx); if (b.fx === 'thunder') FX.sfx.thunder(); else if (b.fx === 'water') FX.sfx.water(); else FX.sfx.slash(); }
+    } else FX.sfx.off();
   },
   extra: (el) => {
     const name = state.settings.exercises[+el.dataset.i];
@@ -568,16 +681,24 @@ const actions = {
     renderOverlay();
     const chip = $(`#overlay .chip[data-i="${el.dataset.i}"]`);
     FX.replay(chip, 'pop');
-    if (on) { FX.burst(chip, { n: 6, dist: 50 }); FX.sfx.pop(); } else FX.sfx.off();
+    if (on) { FX.burst(chip, { n: 6, dist: 50 }); FX.sfx.pop(); const b = CH.BREATH.extra; CH.cutIn(b.char, 'idle', b.title, b.fx, 'right'); } else FX.sfx.off();
   },
   mood: (el) => {
     draft.answers.mood = +el.dataset.i; renderOverlay();
     const face = $(`#overlay .moodbtn[data-i="${el.dataset.i}"] span`);
     FX.replay(face, 'wiggle'); FX.burst(face, { items: ['💖', '✨'], n: 6, dist: 45 }); FX.sfx.pop();
+    moodBuddy(face);
   },
   rope: (el) => {
+    const before = draft.answers.ropeCount;
     draft.answers.ropeCount = Math.max(0, Math.min(99999, draft.answers.ropeCount + +el.dataset.d)); renderOverlay();
     FX.replay($('#rope'), 'pop');
+    ropeStarted(before);
+  },
+  'save-raid': () => {
+    const v = R.cleanRaidTarget(Number($('#s-raid').value.trim()));
+    if (v == null) return toast('讨伐目标要填 10–80 之间的整数');
+    state.settings.raidTarget = v; persist(); render(); toast(`每周讨伐目标：${v} 颗星`);
   },
   submit: () => submitCheckIn(),
   'stretch-toggle': () => stretchToggle(),
@@ -699,7 +820,9 @@ document.addEventListener('input', (e) => {
   if (e.target.id === 'rope' && draft) {
     const digits = e.target.value.replace(/\D/g, '').slice(0, 5);
     if (digits !== e.target.value) e.target.value = digits;
+    const before = draft.answers.ropeCount;
     draft.answers.ropeCount = Number(digits) || 0;
+    ropeStarted(before);
     const p = $('#preview');
     if (p) p.innerHTML = star(R.stars(draft.answers, now(), draft.mode === 'makeup'), 'big');
   }

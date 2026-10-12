@@ -126,7 +126,28 @@ function tone(freq, at, dur = 0.15, type = 'sine', vol = 0.18) {
   o.stop(t + dur + 0.05);
 }
 
+function noise(at, dur, f0, f1, vol = 0.25, q = 1.2) {
+  const a = audio();
+  if (!a) return;
+  const t = a.currentTime + at;
+  const buf = a.createBuffer(1, Math.ceil(a.sampleRate * dur), a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource(); src.buffer = buf;
+  const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+  bp.frequency.setValueAtTime(f0, t); bp.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(bp).connect(g).connect(a.destination);
+  src.start(t); src.stop(t + dur + 0.05);
+}
+
 export const sfx = {
+  slash: () => { noise(0, 0.28, 4000, 600, 0.35, 0.8); tone(1568, 0.25, 0.25, 'triangle', 0.08); },
+  thunder: () => { noise(0, 0.5, 300, 80, 0.4, 0.6); noise(0.05, 0.15, 3000, 1500, 0.2); },
+  water: () => noise(0, 0.5, 900, 300, 0.25, 0.7),
+  caw: () => { tone(520, 0, 0.12, 'sawtooth', 0.06); tone(470, 0.15, 0.14, 'sawtooth', 0.06); },
+  bossDown: () => [196, 147, 98].forEach((f, i) => tone(f, i * 0.18, 0.4, 'square', 0.07)),
   pop: () => { tone(660, 0, 0.09, 'triangle'); tone(990, 0.05, 0.12, 'triangle'); },
   off: () => tone(330, 0, 0.08, 'triangle', 0.1),
   ding: () => [784, 988, 1175, 1568].forEach((f, i) => tone(f, i * 0.09, 0.25)),
