@@ -65,7 +65,7 @@ function setupView() {
 function installHint() {
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  if (!ios || standalone || localStorage.getItem('xiulian.hideInstall')) return '';
+  if (!ios || standalone || NV.isNative() || localStorage.getItem('xiulian.hideInstall')) return '';
   return `<div class="card hintcard">📲 <b>先添加到主屏幕</b>：点 Safari 底部的「分享」按钮，选「添加到主屏幕」。这样用起来像 App，数据也更不容易丢。
     <button class="link" data-action="hide-install">知道了</button></div>`;
 }

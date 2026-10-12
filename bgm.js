@@ -13,7 +13,7 @@ const saveSet = () => { try { localStorage.setItem(KEY, JSON.stringify(set)); } 
 let master = null;       // 总音量 GainNode
 let duckGain = null;     // 说话时压低
 let scene = 'main';      // 'main' | 'calm' | 'off'
-let unlocked = false;
+let unlocked = !!window.__xiulianAutoplay;   // iOS App 外壳允许直接出声
 let playing = null;      // { kind: 'synth'|'custom', scene, stop() }
 let customName = '';
 let customUrl = '';
