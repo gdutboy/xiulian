@@ -103,6 +103,7 @@ function homeView() {
   return `
     ${installHint()}
     <div class="hero-wrap">
+    <button class="bgm-quick" data-action="bgm-quick" aria-label="背景音乐">${BGM.isOn() ? '🎵' : '🔇'}</button>
     <header class="hero">
       <div class="checker"></div>
       <div class="hero-in">${seal(rank, 62)}
@@ -517,7 +518,7 @@ function closeStretch() {
   keepAwake(false);
   VO.stop();
   stretch = null;
-  BGM.setScene('main');
+  bgmScene();
 }
 
 function stretchAdvance() {
@@ -580,9 +581,15 @@ function tabsHTML() {
   return t.map(([k, i, l]) => `<button class="tab ${tab === k ? 'on' : ''}" data-action="tab" data-tab="${k}"><span>${i}</span>${l}</button>`).join('');
 }
 
+// 背景音乐场景：家长页不放；拉伸或今天已打卡（准备睡觉）放安静曲；其余放热血曲/自己的歌
+function bgmScene() {
+  if (SYNC.isViewer() || !state.profile.name || tab === 'parent') return BGM.setScene('off');
+  BGM.setScene(stretch || state.logs[R.dayKey(now())] ? 'calm' : 'main');
+}
+
 function render() {
   if (SYNC.isViewer()) { BGM.setScene('off'); VIEW.render(); return; }
-  BGM.setScene(stretch ? 'calm' : 'main');
+  bgmScene();
   if (!state.profile.name) {
     $('#app').innerHTML = setupView();
     $('#tabs').innerHTML = '';
@@ -843,6 +850,10 @@ const actions = {
   },
   'toggle-sound': () => { FX.setMuted(!FX.muted()); if (FX.muted()) VO.stop(); BGM.refresh(); render(); if (!FX.muted()) FX.sfx.pop(); },
   'bgm-toggle': () => { BGM.setOn(!BGM.settings().on); render(); },
+  'bgm-quick': () => {
+    if (FX.muted()) return toast('动画音效已关闭，请到家长页打开');
+    BGM.setOn(!BGM.settings().on); render(); toast(BGM.settings().on ? '🎵 背景音乐已打开' : '🔇 背景音乐已关闭');
+  },
   'bgm-clear': async () => { await BGM.clearSong(); render(); toast('已换回原创配乐'); },
   'reset-pin': () => {
     if (!confirm('会清除当前家长密码并退出家长页，下次进入时重新设置。确定吗？')) return;

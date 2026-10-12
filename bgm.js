@@ -1,10 +1,12 @@
 // 背景音乐：默认播放程序实时合成的原创和风配乐（热血 / 安静两段），
 // 家长可在家长页导入自己的歌曲（只存在这台手机的 IndexedDB 里，不上传）。
 // 共用 fx.js 的 AudioContext；角色说话时自动压低；静音或页面切到后台时停止。
+// 体验原则：默认音量偏低、淡入淡出不突兀；家长页不放；打完卡换安静曲准备睡觉；
+// 5 分钟没人碰屏幕就淡出，再点一下接着放；自己的歌暂停后从原处继续。
 import * as FX from './fx.js';
 
 const KEY = 'xiulian.bgm';
-const loadSet = () => { try { return { on: true, vol: 0.5, ...(JSON.parse(localStorage.getItem(KEY)) || {}) }; } catch { return { on: true, vol: 0.5 }; } };
+const loadSet = () => { try { return { on: true, vol: 0.4, ...(JSON.parse(localStorage.getItem(KEY)) || {}) }; } catch { return { on: true, vol: 0.4 }; } };
 let set = loadSet();
 const saveSet = () => { try { localStorage.setItem(KEY, JSON.stringify(set)); } catch { /* 忽略 */ } };
 
@@ -15,6 +17,9 @@ let unlocked = false;
 let playing = null;      // { kind: 'synth'|'custom', scene, stop() }
 let customName = '';
 let customUrl = '';
+let customEl = null, customSrc = null;   // 自己的歌：同一个 <audio> 反复暂停/继续，保留播放位置
+let idle = false, lastTouch = Date.now();
+const IDLE_MS = 5 * 60e3;
 export const state = { get scene() { return scene; }, get playing() { return playing ? `${playing.kind}:${playing.scene}` : ''; } };
 window.__bgmState = state;
 
@@ -80,14 +85,26 @@ export async function clearSong() {
   restart();
 }
 
+function fadeBus(ctx, on, secs) {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(1, ctx.currentTime + secs);
+  g.connect(master);
+  return g;
+}
+const fadeOut = (ctx, g, secs, then) => { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setTargetAtTime(0.0001, ctx.currentTime, secs / 4); setTimeout(then, secs * 1000 + 50); };
+
 function playCustom(ctx) {
-  const a = new Audio(customUrl);
-  a.loop = true;
-  let src = null;
-  try { src = ctx.createMediaElementSource(a); src.connect(master); } catch { a.volume = set.vol; }
-  const p = a.play();
-  p?.catch?.(() => {});
-  return { kind: 'custom', scene: 'main', stop: () => { a.pause(); a.src = ''; try { src?.disconnect(); } catch { /* 忽略 */ } } };
+  if (!customEl || customEl.dataset.url !== customUrl) {
+    try { customEl?.pause(); customSrc?.disconnect(); } catch { /* 忽略 */ }
+    customEl = new Audio(customUrl); customEl.dataset.url = customUrl; customEl.loop = true;
+    customSrc = null;
+  }
+  const bus = fadeBus(ctx, true, 1.5);
+  try { customSrc ||= ctx.createMediaElementSource(customEl); customSrc.disconnect(); customSrc.connect(bus); } catch { customEl.volume = set.vol; }
+  customEl.play()?.catch?.(() => {});
+  const el = customEl;
+  return { kind: 'custom', scene: 'main', stop: () => fadeOut(ctx, bus, 0.8, () => { if (customEl === el && playing?.kind !== 'custom') el.pause(); try { bus.disconnect(); } catch { /* 忽略 */ } }) };
 }
 
 // ---------- 原创合成配乐 ----------
@@ -109,9 +126,15 @@ const SONGS = {
       [20, 12, 0.5], [20.5, 11, 0.5], [21, 10, 1], [22, 11, 1], [23, 12, 1],
       [24, 13, 0.5], [24.5, 14, 0.5], [25, 15, 1], [26, 14, 0.5], [26.5, 13, 0.5], [27, 12, 1],
       [28, 11, 1], [29, 12, 1], [30, 10, 2],
+      // B 段：低一点、节奏更舒展
+      [32, 7, 1], [33, 8, 1], [34, 10, 2], [36, 9, 1], [37, 8, 1], [38, 7, 2],
+      [40, 8, 0.5], [40.5, 9, 0.5], [41, 10, 1], [42, 11, 1], [43, 12, 1], [44, 13, 3],
+      [48, 12, 1], [49, 11, 1], [50, 12, 2], [52, 10, 1], [53, 9, 1], [54, 8, 2],
+      [56, 10, 0.5], [56.5, 11, 0.5], [57, 12, 0.5], [57.5, 13, 0.5], [58, 15, 2], [60, 15, 4],
     ],
-    bass: [0, 0, 0, 0, 3, 3, 2, 2, 0, 0, 0, 0, 3, 3, 4, 4, 2, 2, 2, 2, 0, 0, 3, 3, 2, 2, 2, 2, 3, 3, 0, 0],
-    len: 32,
+    bass: [0, 0, 0, 0, 3, 3, 2, 2, 0, 0, 0, 0, 3, 3, 4, 4, 2, 2, 2, 2, 0, 0, 3, 3, 2, 2, 2, 2, 3, 3, 0, 0,
+      3, 3, 3, 3, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 2, 2, 2, 2, 0, 0, 0, 0, 3, 3, 4, 4, 0, 0, 0, 0],
+    len: 64,
   },
   calm: {
     bpm: 70,
@@ -147,14 +170,14 @@ function drum(ctx, out, t, kind) {
   const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   const s = ctx.createBufferSource(); s.buffer = b;
   const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = kind === 'hat' ? 7000 : 1500;
-  const g = ctx.createGain(); g.gain.setValueAtTime(kind === 'hat' ? 0.12 : 0.35, t); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  const g = ctx.createGain(); g.gain.setValueAtTime(kind === 'hat' ? 0.06 : 0.25, t); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
   s.connect(f).connect(g).connect(out); s.start(t);
 }
 
 function playSynth(ctx, which) {
   const song = SONGS[which];
   const beat = 60 / song.bpm;
-  const bus = ctx.createGain(); bus.connect(master);
+  const bus = fadeBus(ctx, true, 2);
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = which === 'calm' ? 2400 : 4200; lp.connect(bus);
   let start = ctx.currentTime + 0.1, nextBeat = 0, loop = 0;
   const tick = () => {
@@ -175,7 +198,7 @@ function playSynth(ctx, which) {
         if (at >= b && at < b + 1) {
           const tt = t + (at - b) * beat;
           const oct = which === 'calm' ? 1 : 0;
-          if (which === 'main') { note(ctx, lp, tt, N(deg(d, oct)), dur * beat, 'square', 0.05, Math.min(dur * beat, 0.5)); note(ctx, lp, tt, N(deg(d, oct)) * 2, dur * beat, 'triangle', 0.04, 0.25); }
+          if (which === 'main') { note(ctx, lp, tt, N(deg(d, oct)), dur * beat, 'triangle', 0.09, Math.min(dur * beat, 0.6)); note(ctx, lp, tt, N(deg(d, oct)) * 2, dur * beat, 'square', 0.02, 0.2); }
           else note(ctx, lp, tt, N(deg(d, oct)), dur * beat, 'triangle', 0.24, Math.max(1.2, dur * beat));
         }
       }
@@ -185,11 +208,11 @@ function playSynth(ctx, which) {
   };
   tick();
   const timer = setInterval(tick, 100);
-  return { kind: 'synth', scene: which, stop: () => { clearInterval(timer); bus.gain.setTargetAtTime(0, ctx.currentTime, 0.1); setTimeout(() => { try { bus.disconnect(); } catch { /* 忽略 */ } }, 600); } };
+  return { kind: 'synth', scene: which, stop: () => { clearInterval(timer); fadeOut(ctx, bus, 0.8, () => { try { bus.disconnect(); } catch { /* 忽略 */ } }); } };
 }
 
 // ---------- 控制 ----------
-function shouldPlay() { return unlocked && set.on && !FX.muted() && scene !== 'off' && !document.hidden; }
+function shouldPlay() { return unlocked && set.on && !FX.muted() && scene !== 'off' && !document.hidden && !idle; }
 
 function restart() {
   const want = shouldPlay() ? (scene === 'main' && customUrl ? 'custom' : 'synth') : null;
@@ -204,6 +227,7 @@ function restart() {
 export function setScene(s) { if (s !== scene) { scene = s; restart(); } }
 export function refresh() { if (master) master.gain.value = set.vol * 0.6; restart(); }
 export function setOn(on) { set.on = on; saveSet(); restart(); }
+export const isOn = () => set.on && !FX.muted();
 export function setVolume(v) { set.vol = Math.max(0, Math.min(1, v)); saveSet(); if (master) master.gain.value = set.vol * 0.6; }
 
 /** 角色说话时压低背景音乐。 */
@@ -213,7 +237,11 @@ export function duck(on) {
 }
 
 // 第一次点击后才能出声（浏览器限制）
-function onGesture() { if (!unlocked) { unlocked = true; restart(); } }
+function onGesture() {
+  lastTouch = Date.now();
+  if (!unlocked || idle) { unlocked = true; idle = false; restart(); }
+}
+setInterval(() => { if (!idle && playing && Date.now() - lastTouch > IDLE_MS) { idle = true; restart(); } }, 30e3);
 for (const ev of ['pointerdown', 'touchend', 'keydown']) document.addEventListener(ev, onGesture, { capture: true, passive: true });
 document.addEventListener('visibilitychange', restart);
 
