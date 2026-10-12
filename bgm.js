@@ -23,7 +23,12 @@ const IDLE_MS = 5 * 60e3;
 export const state = { get scene() { return scene; }, get playing() { return playing ? `${playing.kind}:${playing.scene}` : ''; } };
 window.__bgmState = state;
 
-export const settings = () => ({ ...set, customName });
+// 内置歌曲（只有自用安卓包里有，由 build-native 注入）
+const builtin = window.__xiulianBuiltinBgm || null;
+const mainUrl = () => customUrl || builtin?.url || '';
+const SONG_LEVEL = 0.45;   // 成品歌曲本身很响，压到和角色语音协调的程度
+
+export const settings = () => ({ ...set, customName, builtinName: builtin?.name || '' });
 
 function graph() {
   const ctx = FX.audioCtx();
@@ -85,23 +90,24 @@ export async function clearSong() {
   restart();
 }
 
-function fadeBus(ctx, on, secs) {
+function fadeBus(ctx, on, secs, level = 1) {
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(1, ctx.currentTime + secs);
+  g.gain.exponentialRampToValueAtTime(level, ctx.currentTime + secs);
   g.connect(master);
   return g;
 }
 const fadeOut = (ctx, g, secs, then) => { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setTargetAtTime(0.0001, ctx.currentTime, secs / 4); setTimeout(then, secs * 1000 + 50); };
 
 function playCustom(ctx) {
-  if (!customEl || customEl.dataset.url !== customUrl) {
+  const url = mainUrl();
+  if (!customEl || customEl.dataset.url !== url) {
     try { customEl?.pause(); customSrc?.disconnect(); } catch { /* 忽略 */ }
-    customEl = new Audio(customUrl); customEl.dataset.url = customUrl; customEl.loop = true;
+    customEl = new Audio(url); customEl.dataset.url = url; customEl.loop = true;
     customSrc = null;
   }
-  const bus = fadeBus(ctx, true, 1.5);
-  try { customSrc ||= ctx.createMediaElementSource(customEl); customSrc.disconnect(); customSrc.connect(bus); } catch { customEl.volume = set.vol; }
+  const bus = fadeBus(ctx, true, 1.5, SONG_LEVEL);
+  try { customSrc ||= ctx.createMediaElementSource(customEl); customSrc.disconnect(); customSrc.connect(bus); } catch { customEl.volume = set.vol * SONG_LEVEL; }
   customEl.play()?.catch?.(() => {});
   const el = customEl;
   return { kind: 'custom', scene: 'main', stop: () => fadeOut(ctx, bus, 0.8, () => { if (customEl === el && playing?.kind !== 'custom') el.pause(); try { bus.disconnect(); } catch { /* 忽略 */ } }) };
@@ -215,7 +221,7 @@ function playSynth(ctx, which) {
 function shouldPlay() { return unlocked && set.on && !FX.muted() && scene !== 'off' && !document.hidden && !idle; }
 
 function restart() {
-  const want = shouldPlay() ? (scene === 'main' && customUrl ? 'custom' : 'synth') : null;
+  const want = shouldPlay() ? (scene === 'main' && mainUrl() ? 'custom' : 'synth') : null;
   if (playing && (!want || playing.kind !== want || playing.scene !== scene)) { playing.stop(); playing = null; }
   if (!want || playing) return;
   const ctx = graph();

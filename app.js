@@ -365,9 +365,9 @@ function bgmCard() {
   return `<div class="card"><h3>🎵 背景音乐</h3>
     <div class="flex"><span>背景音乐</span><button class="pill ${b.on ? 'red' : 'gray'}" data-action="bgm-toggle">${b.on ? '🎵 已开启' : '🔇 已关闭'}</button></div>
     <div class="flex"><span>音量</span><input id="bgm-vol" type="range" min="0" max="100" value="${Math.round(b.vol * 100)}" style="width:60%"></div>
-    <p class="small">平时播放：<b>${b.customName ? esc(b.customName) : '原创和风配乐'}</b>（睡前拉伸时换成安静的曲子）</p>
+    <p class="small">平时播放：<b>${esc(b.customName || b.builtinName || '原创和风配乐')}</b>（打完卡和睡前拉伸时换成安静的曲子）</p>
     <label class="btn gray file">选择自己的歌曲<input type="file" id="bgm-file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac"></label>
-    ${b.customName ? '<button class="btn gray" data-action="bgm-clear">换回原创配乐</button>' : ''}
+    ${b.customName ? `<button class="btn gray" data-action="bgm-clear">换回${b.builtinName ? esc(b.builtinName) : '原创配乐'}</button>` : ''}
     <p class="hint">支持 mp3、m4a 等普通音乐文件，只保存在这台手机里。网易云、QQ 音乐会员下载的加密文件（.ncm 等）放不出来。「动画音效」关闭时背景音乐也不播放。</p></div>`;
 }
 
@@ -854,7 +854,7 @@ const actions = {
     if (FX.muted()) return toast('动画音效已关闭，请到家长页打开');
     BGM.setOn(!BGM.settings().on); render(); toast(BGM.settings().on ? '🎵 背景音乐已打开' : '🔇 背景音乐已关闭');
   },
-  'bgm-clear': async () => { await BGM.clearSong(); render(); toast('已换回原创配乐'); },
+  'bgm-clear': async () => { await BGM.clearSong(); render(); toast(`已换回${BGM.settings().builtinName || '原创配乐'}`); },
   'reset-pin': () => {
     if (!confirm('会清除当前家长密码并退出家长页，下次进入时重新设置。确定吗？')) return;
     state.settings.pin = ''; persist(); parentUnlocked = false; pin = null; render();
