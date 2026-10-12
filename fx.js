@@ -102,13 +102,17 @@ let ctx = null;
 export const muted = () => localStorage.getItem('xiulian.mute') === '1';
 export const setMuted = (m) => (m ? localStorage.setItem('xiulian.mute', '1') : localStorage.removeItem('xiulian.mute'));
 
-function audio() {
-  if (muted()) return null;
+/** 共享的 AudioContext（音效与角色语音共用一个），不看静音；已关闭就新建。 */
+export function audioCtx() {
   try {
-    ctx ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (!ctx || ctx.state === 'closed') ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
   } catch { return null; }
+}
+
+function audio() {
+  return muted() ? null : audioCtx();
 }
 
 function tone(freq, at, dur = 0.15, type = 'sine', vol = 0.18) {

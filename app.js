@@ -3,6 +3,9 @@ import { load, save, ledger, sanitize } from './store.js';
 import * as FX from './fx.js';
 import * as NV from './native.js';
 import * as CH from './chars.js';
+import * as VO from './voices.js';
+import * as SYNC from './sync.js';
+import * as VIEW from './viewer.js';
 
 // ---------- 状态 ----------
 let state = load(globalThis.localStorage, window.__fakeNow ? new Date(window.__fakeNow) : new Date());
@@ -16,7 +19,9 @@ let firstPin = null;   // 设置密码第一次输入
 const $ = (sel) => document.querySelector(sel);
 const now = () => (window.__fakeNow ? new Date(window.__fakeNow) : new Date());
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const persist = () => save(state);
+// 查看模式（家长手机）绝不写本机修炼数据；孩子设备登录后每次保存都会触发自动同步
+const persist = () => { if (SYNC.isViewer()) return; save(state); SYNC.onPersist(); };
+const isEmpty = () => !state.profile.name && !Object.keys(state.logs).length && !state.bodies.length && !state.redemptions.length && !state.bonuses.length;
 const childName = () => state.profile.name || '小剑士';
 const rankTitle = (r) => (r.name === '柱' ? `${childName()}柱` : r.title);
 
@@ -50,7 +55,8 @@ function setupView() {
       <input id="setup-name" maxlength="8" placeholder="例如：棒棒" autocomplete="off">
       <button class="btn red" data-action="setup-save">开始修炼</button>
     </div>
-    <p class="hint">所有数据只保存在这台手机里，不会上传。</p>
+    <p class="hint">数据保存在这台手机里；注册账号后会自动备份到家里的服务器。</p>
+    ${SYNC.setupHTML()}
   </div>`;
 }
 
@@ -134,6 +140,7 @@ function bodyCard(t) {
 function dutyHTML(t, logged) {
   const sleep = logged && R.minutesOfDay(t) >= R.EARLY_BED_MINUTES;
   const id = sleep ? 'nezuko' : R.dutyFor(t);
+  if (!sleep) VO.preload([0, 1, 2].map((i) => `line-${id}-${i}`));
   return `<div class="duty" data-action="duty" data-id="${id}" data-sleep="${sleep ? 1 : ''}">${CH.charHTML(id, sleep ? 'sleep' : 'idle')}</div>`;
 }
 
@@ -159,7 +166,7 @@ function maybeCrow() {
     measured: R.measuredThisWeek(state.bodies, t), raid: R.raidState(state, t) }, seen);
   if (!m) return;
   localStorage.setItem('xiulian.crowSeen', JSON.stringify({ day: R.dayKey(t), ids: [...seen, m.id] }));
-  setTimeout(() => { if (tab === 'home' && !$('#overlay').innerHTML) CH.crowBubble(m.text); }, 600);
+  setTimeout(() => { if (tab === 'home' && !$('#overlay').innerHTML) { CH.crowBubble(m.text); VO.play(`crow-${m.id}`); } }, 600);
 }
 
 function celebrateProgress() {
@@ -170,6 +177,7 @@ function celebrateProgress() {
   FX.confetti(60);
   FX.burst($('.body-card .progress'), { n: 10, dist: 90 });
   CH.cutIn('rengoku', 'idle', '心中燃起火焰吧！', 'fire', 'right');
+  VO.play('breath-fire');
 }
 
 // ---------- 页面：阶级 ----------
@@ -339,6 +347,8 @@ function parentView() {
     <p class="hint">10–80 颗星，一周内得到的星星就是对大鬼的伤害，打空血条额外 +3 ⭐。</p>
     <div class="flex"><span>动画音效</span><button class="pill ${FX.muted() ? 'gray' : 'red'}" data-action="toggle-sound">${FX.muted() ? '🔇 已关闭' : '🔊 已开启'}</button></div></div>
 
+  ${SYNC.cardHTML()}
+
   <div class="card"><h3>数据备份</h3>
     <p class="hint">${NV.isNative() ? '数据只存在这台手机的 App 里。卸载 App 或换手机会丢失，建议每月导出一次备份；重新安装/升级前一定先导出。' : '数据只存在这台手机的浏览器里。清除 Safari 数据或换手机会丢失，建议每月导出一次备份。'}</p>
     ${!NV.isNative() || NV.has('export') ? '<button class="btn green" data-action="export">导出备份文件</button>' : '<p class="hint">此版本暂不支持导出备份。</p>'}
@@ -366,7 +376,7 @@ async function applyReminder(minutes, okMsg) {
 
 // 跳绳从 0 变成有数时，风柱登场一次
 function ropeStarted(before) {
-  if (before === 0 && draft.answers.ropeCount > 0) { const b = CH.BREATH.rope; CH.cutIn(b.char, 'idle', b.title, b.fx, 'right'); FX.sfx.slash(); }
+  if (before === 0 && draft.answers.ropeCount > 0) { const b = CH.BREATH.rope; CH.cutIn(b.char, 'idle', b.title, b.fx, 'right'); FX.sfx.slash(); VO.play('breath-rope'); }
 }
 
 // 选心情时祢豆子在表情旁冒出来
@@ -454,27 +464,35 @@ function submitCheckIn() {
   renderOverlay();
   const res = draft.result;
   $('#plusn').textContent = '0';
+  VO.play('slash', '全集中！斩！');
   CH.slashScene(R.impsFor(state.logs[key], t, isMakeup), () => {
     if (draft?.result !== res) return;
     FX.countUp($('#plusn'), stars);
     FX.confetti(res.newRank ? 110 : 70);
     if (res.newRank) { FX.sfx.levelUp(); CH.crowBubble('晋级！晋级！'); } else FX.sfx.ding();
     if (raid) { FX.sfx.bossDown(); toast(`讨伐成功！打败了${CH.CHARS[raid.boss].name}，额外 +3 ⭐`, true); }
+    rankVoices(res.newRank, !!raid);
   });
 }
 
 // ---------- 拉伸弹层 ----------
-let noVoiceTold = false;
-function speak(text) {
-  if (!NV.speak(text) && !noVoiceTold) {
-    noVoiceTold = true;
-    toast('手机没有中文语音，可在系统设置里下载语音包');
+// 晋级：鎹鸦先喊，播完再由授阶的柱说一句；讨伐成功鎹鸦报喜（晋级时接在后面）
+async function rankVoices(newRank, raidWon) {
+  if (newRank) {
+    const id = CH.RANK_PRESENTER[newRank.name];
+    if (!(await VO.play('crow-rankup', '晋级！晋级！'))) return;
+    if (id && !(await VO.play(`present-${id}`))) return;
   }
+  if (raidWon) VO.play('crow-raidwin', '讨伐成功！');
 }
+
+// 拉伸旁白：优先播预生成语音，失败时系统朗读
+const speak = (key, text) => VO.play(key, text);
 const keepAwake = (on) => NV.keepAwake(on);
 
 function openStretch() {
   stretch = { i: 0, left: R.STRETCH[0].seconds, running: false, started: false, done: false, timer: null };
+  VO.preload([...R.STRETCH.map((_, i) => `stretch-${i}`), 'stretch-321', 'stretch-done']);
   renderOverlay();
 }
 
@@ -482,21 +500,21 @@ function closeStretch() {
   if (!stretch) return;
   clearInterval(stretch.timer);
   keepAwake(false);
-  NV.stopSpeak();
+  VO.stop();
   stretch = null;
 }
 
 function stretchAdvance() {
   if (stretch.i + 1 >= R.STRETCH.length) {
     stretch.done = true; stretch.running = false; clearInterval(stretch.timer);
-    speak('修炼完成！好好睡觉，明天会更强。');
+    speak('stretch-done', '修炼完成！好好睡觉，明天会更强。');
     setTimeout(FX.sfx.night, 300);
     return renderOverlay();
   }
   stretch.i++;
   stretch.left = R.STRETCH[stretch.i].seconds;
   const m = R.STRETCH[stretch.i];
-  if (stretch.started) speak(`下一个动作，${m.name}。${m.tip}`);
+  if (stretch.started) speak(`stretch-${stretch.i}`, `下一个动作，${m.name}。${m.tip}`);
   renderOverlay();
 }
 
@@ -504,7 +522,7 @@ function stretchToggle() {
   if (!stretch.started) {
     stretch.started = true;
     const m = R.STRETCH[0];
-    speak(`全集中！第一个动作，${m.name}。${m.tip}`);
+    speak('stretch-0', `全集中！第一个动作，${m.name}。${m.tip}`);
     keepAwake(true);
   }
   stretch.running = !stretch.running;
@@ -512,7 +530,7 @@ function stretchToggle() {
   if (stretch.running) {
     stretch.timer = setInterval(() => {
       stretch.left--;
-      if (stretch.left === 3) speak('三，二，一');
+      if (stretch.left === 3) speak('stretch-321', '三，二，一');
       if (stretch.left <= 3 && stretch.left > 0) FX.sfx.tick();
       if (stretch.left <= 0) stretchAdvance(); else renderOverlay();
     }, 1000);
@@ -547,6 +565,7 @@ function tabsHTML() {
 }
 
 function render() {
+  if (SYNC.isViewer()) { VIEW.render(); return; }
   if (!state.profile.name) {
     $('#app').innerHTML = setupView();
     $('#tabs').innerHTML = '';
@@ -554,7 +573,7 @@ function render() {
     return;
   }
   const raid = R.syncRaid(state, now());
-  if (raid) { state.bonuses.push(raid); persist(); toast(`讨伐成功！打败了${CH.CHARS[raid.boss].name}，额外 +3 ⭐`, true); }
+  if (raid) { state.bonuses.push(raid); persist(); toast(`讨伐成功！打败了${CH.CHARS[raid.boss].name}，额外 +3 ⭐`, true); VO.play('crow-raidwin', '讨伐成功！'); }
   const views = { home: homeView, ranks: ranksView, rewards: rewardsView, parent: parentView };
   $('#app').innerHTML = views[tab]();
   $('#tabs').innerHTML = tabsHTML();
@@ -570,11 +589,13 @@ function render() {
 
 // 告诉原生外壳：现在按返回键是否由网页处理（有弹层或不在首页）
 function syncBack() {
+  if (SYNC.isViewer()) return NV.setCanGoBack(!!$('#overlay').innerHTML || VIEW.canGoBack());
   NV.setCanGoBack(!!$('#overlay').innerHTML || (!!state.profile.name && tab !== 'home'));
 }
 
 // 原生返回键：先关弹层，再回首页；都没有则返回 false 交给系统
 function back() {
+  if (SYNC.isViewer()) return VIEW.back();
   if ($('#overlay').innerHTML) { closeOverlay(); return true; }
   if (state.profile.name && tab !== 'home') { actions.tab({ dataset: { tab: 'home' } }); return true; }
   return false;
@@ -646,17 +667,17 @@ const actions = {
   },
   'hide-install': () => { localStorage.setItem('xiulian.hideInstall', '1'); render(); },
   tab: (el) => { tab = el.dataset.tab; if (tab !== 'parent') { parentUnlocked = false; pin = null; firstPin = null; } render(); window.scrollTo(0, 0); FX.replay($('#app'), 'enter'); },
-  checkin: () => { CH.preload(CH.PRELOAD_CHECKIN); openCheckIn('tonight', now()); },
+  checkin: () => { CH.preload(CH.PRELOAD_CHECKIN); VO.preload([...Object.keys(CH.BREATH).map((k) => `breath-${k}`), 'slash', 'mood']); openCheckIn('tonight', now()); },
   duty: (el) => {
-    if (el.dataset.sleep) { CH.crowBubble('嘘……祢豆子睡着了。'); return; }
+    if (el.dataset.sleep) { CH.crowBubble('嘘……祢豆子睡着了。'); VO.play('crow-sleep'); return; }
     const id = el.dataset.id;
     el.innerHTML = CH.charHTML(id, CH.CHARS[id].poses.action ? 'action' : (CH.CHARS[id].poses.cheer ? 'cheer' : 'idle'));
     FX.replay(el, 'act');
     document.querySelector('.say')?.remove();
-    const line = CH.lineFor(id);
+    const [li, line] = CH.pickLine(id);
     const b = document.createElement('div'); b.className = 'say'; b.textContent = line;
     el.parentNode.appendChild(b);
-    speak(line);
+    VO.play(`line-${id}-${li}`, line);
     clearTimeout(actions.duty.timer);
     actions.duty.timer = setTimeout(() => { b.remove(); if (el.isConnected) el.innerHTML = CH.charHTML(id); }, 2500);
   },
@@ -670,7 +691,7 @@ const actions = {
     if (on) {
       FX.burst(icon); FX.sfx.pop();
       const b = CH.BREATH[k];
-      if (b) { CH.cutIn(b.char, b.pose || 'idle', b.title, b.fx); if (b.fx === 'thunder') FX.sfx.thunder(); else if (b.fx === 'water') FX.sfx.water(); else FX.sfx.slash(); }
+      if (b) { VO.play(`breath-${k}`); CH.cutIn(b.char, b.pose || 'idle', b.title, b.fx); if (b.fx === 'thunder') FX.sfx.thunder(); else if (b.fx === 'water') FX.sfx.water(); else FX.sfx.slash(); }
     } else FX.sfx.off();
   },
   extra: (el) => {
@@ -681,13 +702,14 @@ const actions = {
     renderOverlay();
     const chip = $(`#overlay .chip[data-i="${el.dataset.i}"]`);
     FX.replay(chip, 'pop');
-    if (on) { FX.burst(chip, { n: 6, dist: 50 }); FX.sfx.pop(); const b = CH.BREATH.extra; CH.cutIn(b.char, 'idle', b.title, b.fx, 'right'); } else FX.sfx.off();
+    if (on) { FX.burst(chip, { n: 6, dist: 50 }); FX.sfx.pop(); const b = CH.BREATH.extra; CH.cutIn(b.char, 'idle', b.title, b.fx, 'right'); VO.play('breath-extra'); } else FX.sfx.off();
   },
   mood: (el) => {
     draft.answers.mood = +el.dataset.i; renderOverlay();
     const face = $(`#overlay .moodbtn[data-i="${el.dataset.i}"] span`);
     FX.replay(face, 'wiggle'); FX.burst(face, { items: ['💖', '✨'], n: 6, dist: 45 }); FX.sfx.pop();
     moodBuddy(face);
+    VO.play('mood');
   },
   rope: (el) => {
     const before = draft.answers.ropeCount;
@@ -802,7 +824,7 @@ const actions = {
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   },
-  'toggle-sound': () => { FX.setMuted(!FX.muted()); render(); if (!FX.muted()) FX.sfx.pop(); },
+  'toggle-sound': () => { FX.setMuted(!FX.muted()); if (FX.muted()) VO.stop(); render(); if (!FX.muted()) FX.sfx.pop(); },
   'reset-pin': () => {
     if (!confirm('会清除当前家长密码并退出家长页，下次进入时重新设置。确定吗？')) return;
     state.settings.pin = ''; persist(); parentUnlocked = false; pin = null; render();
@@ -812,7 +834,9 @@ const actions = {
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || el.disabled) return;
-  const fn = actions[el.dataset.action];
+  const a = el.dataset.action;
+  // 查看模式只允许查看页自己的动作和点角色听语音
+  const fn = SYNC.isViewer() ? (VIEW.actions[a] || (a === 'duty' ? actions.duty : null)) : (actions[a] || SYNC.actions[a]);
   if (fn) { e.preventDefault(); fn(el); }
 });
 
@@ -854,5 +878,11 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && ta
 if ('serviceWorker' in navigator && ['gdutboy.github.io', 'localhost'].includes(location.hostname)) navigator.serviceWorker.register('sw.js');
 navigator.storage?.persist?.();
 
-render();
+if (SYNC.isViewer()) {
+  VIEW.start({ lineChart, star, seal, esc, logSummary, toast, now, afterRender: syncBack });
+  syncBack();
+} else {
+  SYNC.initSync({ getState: () => state, replaceState: (s) => { state = s; save(state); }, isEmpty, render, toast });
+  SYNC.bootRestore().catch(() => {}).then(render);
+}
 window.__xiulian = { get state() { return state; }, render, back };

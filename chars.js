@@ -81,7 +81,9 @@ export const LINES = {
   sanemi: ['跳绳！再来一组！', '别偷懒！', '哼，还不错。'],
   obanai: ['不准挑食。', '按时睡觉。', '……做得不坏。'],
 };
-export const lineFor = (id) => { const l = LINES[id] || ['加油！']; return l[Math.floor(Math.random() * l.length)]; };
+export const lineFor = (id) => pickLine(id)[1];
+/** 随机一句台词，返回 [序号, 文本]，序号用来对应角色语音 line-<id>-<序号>。 */
+export const pickLine = (id) => { const l = LINES[id] || ['加油！']; const i = Math.floor(Math.random() * l.length); return [i, l[i]]; };
 
 // ---------- 特效 ----------
 const layer = () => document.getElementById('fx');

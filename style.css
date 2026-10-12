@@ -203,3 +203,4 @@ input[type=time],input[type=date]{width:auto;color-scheme:dark}
 .mood-buddy .char{height:100%}
 @keyframes moodPop{0%{transform:translateY(20px) scale(.5);opacity:0}25%{transform:none;opacity:1}75%{opacity:1}100%{opacity:0;transform:translateY(-20px)}}
 @media (prefers-reduced-motion:reduce){.ss{display:none}}
+.syncform input{display:block;width:100%;margin-top:8px}.syncform h3{margin-bottom:4px}.viewbar{border:1px solid rgba(242,184,77,.35)}
