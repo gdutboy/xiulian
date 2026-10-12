@@ -259,12 +259,18 @@ export function duck(on) {
 }
 
 // 第一次点击后才能出声（浏览器限制）
+// iPhone 只认「手指抬起 / 点击」为有效手势，按下那一刻启动会被拦；所以每种手势都再试一次，直到真的在放
 function onGesture() {
   lastTouch = Date.now();
-  if (!unlocked || idle) { unlocked = true; idle = false; restart(); }
+  const ctx = FX.audioCtx();
+  if (!unlocked || idle) { unlocked = true; idle = false; restart(); return; }
+  if (!shouldPlay()) return;
+  if (!playing) { restart(); return; }
+  if (playing.kind === 'custom' && customEl?.paused) customEl.play()?.catch?.(() => {});
+  if (ctx?.state !== 'running') ctx?.resume?.();
 }
 setInterval(() => { if (!idle && playing && Date.now() - lastTouch > IDLE_MS) { idle = true; restart(); } }, 30e3);
-for (const ev of ['pointerdown', 'touchend', 'keydown']) document.addEventListener(ev, onGesture, { capture: true, passive: true });
+for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) document.addEventListener(ev, onGesture, { capture: true, passive: true });
 document.addEventListener('visibilitychange', restart);
 
 loadCustom().then(restart);

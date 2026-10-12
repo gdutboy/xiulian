@@ -348,9 +348,9 @@ function pinPadHTML() {
     k ? `<button class="key" data-action="pin-key" data-k="${k}">${k}</button>` : '<span></span>').join('');
   return `<div class="pinpad"><div class="lock">🔐</div><h3>${esc(pin.title)}</h3><p class="hint">${esc(pin.subtitle || '')}</p>
     <div class="dots ${pin.shake ? 'shake' : ''}">${dots}</div><div class="keys">${keys}</div>
-    ${pin.forgot ? `<div class="card" style="margin-top:12px"><p>家长验证：<b>${pin.forgot.a} × ${pin.forgot.b} = ?</b></p>
-      <div class="flex gap"><input id="pin-forgot-ans" inputmode="numeric" maxlength="4" placeholder="答案"><button class="pill red" data-action="pin-forgot-ok">确认</button></div>
-      <p class="hint">答对后会清除家长密码，然后重新设置一个新密码。</p></div>`
+    ${pin.forgot ? `<div class="card" style="margin-top:12px"><p>请家长在微信里对 cc 说：<b>「重置修炼日记家长密码」</b></p>
+      <p class="hint">cc 在家里的服务器上清除密码后，点下面的按钮，就可以重新设置新密码。</p>
+      <button class="btn green" data-action="pin-forgot-ok">已经重置了，刷新</button></div>`
       : (state.settings.pin && !firstPin ? '<button class="link" data-action="pin-forgot">忘记密码？</button>' : '')}
     ${pin.overlay ? '<button class="link" data-action="pin-cancel">取消</button>' : ''}</div>`;
 }
@@ -892,15 +892,12 @@ const actions = {
   },
   'pin-key': (el) => pinKey(el.dataset.k),
   'pin-cancel': () => { pin = null; renderOverlay(); },
-  'pin-forgot': () => {
-    pin.forgot = { a: 12 + Math.floor(Math.random() * 38), b: 6 + Math.floor(Math.random() * 4) };
-    pin.overlay ? renderOverlay() : render();
-  },
-  'pin-forgot-ok': () => {
-    const f = pin.forgot;
-    if (Number($('#pin-forgot-ans').value.trim()) !== f.a * f.b) { toast('答案不对'); pin.forgot = null; return pin.overlay ? renderOverlay() : render(); }
-    state.settings.pin = ''; persist();
-    const wasOverlay = pin.overlay;
+  'pin-forgot': () => { pin.forgot = true; pin.overlay ? renderOverlay() : render(); },
+  'pin-forgot-ok': async () => {
+    toast('正在从家里的服务器读取…');
+    await SYNC.sync();
+    if (state.settings.pin) return toast('密码还没被重置，请先在微信里让 cc 重置');
+    const wasOverlay = pin?.overlay;
     pin = null; firstPin = null; parentUnlocked = false;
     if (wasOverlay) renderOverlay();
     tab = 'parent'; render(); toast('家长密码已清除，请设置新密码');

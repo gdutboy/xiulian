@@ -124,9 +124,9 @@ function unlock() {
   } catch { /* 忽略 */ }
   unlocked = true;
 }
-for (const ev of ['pointerdown', 'touchend', 'keydown']) {
+for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) {
   document.addEventListener(ev, () => {
-    if (!unlocked) unlock();
-    else { const c = FX.audioCtx(); if (c?.state === 'suspended') c.resume(); }
+    const c = FX.audioCtx();
+    if (!unlocked || c?.state !== 'running') unlock();   // iPhone 要在手指抬起时才能真正解锁，没跑起来就再解一次
   }, { capture: true, passive: true });
 }
