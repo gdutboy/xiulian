@@ -138,7 +138,7 @@ input[type=time],input[type=date]{width:auto;color-scheme:dark}
 .ci{position:absolute;left:0;right:0;top:30%;height:230px;pointer-events:none}
 .ci .ci-img{position:absolute;bottom:0;height:210px;animation:ciIn 1.3s cubic-bezier(.2,.8,.3,1) forwards}
 .ci-left .ci-img{left:0}.ci-right .ci-img{right:0;transform:scaleX(-1)}
-.ci-title{position:absolute;right:0;left:30%;top:30%;white-space:nowrap;font-family:"STKaiti","Kaiti SC","KaiTi","Songti SC",serif;font-weight:900;font-size:24px;color:#fff;text-align:center;
+.ci-title{position:absolute;right:0;left:30%;top:30%;white-space:nowrap;font-family:"STKaiti","Kaiti SC","KaiTi","Songti SC",serif;font-weight:900;font-size:min(24px,6vw);color:#fff;text-align:center;
   text-shadow:0 0 10px rgba(0,0,0,.9),0 2px 0 #000;background:linear-gradient(90deg,transparent,rgba(204,26,51,.85) 15%,rgba(204,26,51,.85) 85%,transparent);padding:6px 0;animation:ciTitle 1.3s ease forwards}
 @keyframes ciIn{0%{transform:translateX(-110%)}22%{transform:translateX(6%)}30%{transform:translateX(0)}78%{opacity:1;transform:translateX(0)}100%{opacity:0;transform:translateX(-30%)}}
 .ci-right .ci-img{animation-name:ciInR}
