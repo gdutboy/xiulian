@@ -124,3 +124,5 @@ input[type=time],input[type=date]{width:auto;color-scheme:dark}
 #app.enter{animation:enter .3s ease}
 @keyframes enter{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}#sky{display:none}}
+.form2b{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.body-card p{margin:6px 0;line-height:1.5}.body-card .progress{font-weight:800}

@@ -203,3 +203,144 @@ export const STRETCH = [
 ].map(([name, seconds, tip, icon]) => ({ name, seconds, tip, icon }));
 
 export const STRETCH_TOTAL = STRETCH.reduce((s, m) => s + m.seconds, 0);
+
+// ---------- 身体测量（每周体重 + 腰围；身高每月）----------
+
+export const BODY_FIELDS = { h: [80, 220], w: [15, 150], waist: [40, 150] };
+export const MEASURE_STARS = 1;
+const DAY = 86400000;
+const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY);
+export const weeksOf = (days) => Math.max(1, Math.round(days / 7));
+const round1 = (v) => Math.round(v * 10) / 10;
+
+/** 真实存在的 YYYY-MM-DD。 */
+export function isRealDayKey(k) {
+  return typeof k === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(k) && dayKey(dateFromKey(k)) === k;
+}
+
+/** 单个测量值：有限 number 且在范围内 → 保留 1 位小数，否则 null。 */
+export function cleanBodyValue(field, v) {
+  const [lo, hi] = BODY_FIELDS[field];
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  const r = round1(v);
+  return r >= lo && r <= hi ? r : null;
+}
+
+const sortBodies = (bodies) => [...bodies].sort((a, b) => a.date.localeCompare(b.date));
+
+/** 把一条测量合并进列表：填了的字段覆盖，没填的保留；返回按日期排序的新数组。 */
+export function mergeBody(bodies, entry) {
+  const old = bodies.find((b) => b.date === entry.date) || { date: entry.date };
+  const merged = { ...old };
+  for (const f of Object.keys(BODY_FIELDS)) if (entry[f] != null) merged[f] = entry[f];
+  return sortBodies([...bodies.filter((b) => b.date !== entry.date), merged]);
+}
+
+/** 清洗：真实日期、不晚于今天、数值合法；同日合并；排序。 */
+export function cleanBodies(raw, today) {
+  if (!Array.isArray(raw)) return [];
+  const todayKey = dayKey(today);
+  let out = [];
+  for (const b of raw) {
+    if (!b || !isRealDayKey(b.date) || b.date > todayKey) continue;
+    const e = { date: b.date };
+    for (const f of Object.keys(BODY_FIELDS)) { const v = cleanBodyValue(f, b[f]); if (v != null) e[f] = v; }
+    if (Object.keys(e).length > 1) out = mergeBody(out, e);
+  }
+  return out;
+}
+
+/** 清洗测量奖励：kind 合法、week 是周一且不晚于本周、按周去重、每条 1 星。 */
+export function cleanBonuses(raw, today) {
+  if (!Array.isArray(raw)) return [];
+  const thisWeek = weekKey(today);
+  const seen = new Set();
+  const out = [];
+  for (const x of raw) {
+    if (!x || x.kind !== 'measure' || !isRealDayKey(x.week)) continue;
+    if (weekKey(dateFromKey(x.week)) !== x.week || x.week > thisWeek || seen.has(x.week)) continue;
+    seen.add(x.week);
+    out.push({ kind: 'measure', week: x.week, stars: MEASURE_STARS, date: typeof x.date === 'string' ? x.date : '' });
+  }
+  return out;
+}
+
+const complete = (b) => b && b.w != null && b.waist != null;
+
+/** 保存后是否该发测量星：合并后的当天记录有体重+腰围，记录所在周 = 保存时刻所在周，且该周还没发过。 */
+export function measureBonusFor(bodies, bonuses, dateKey, savedAt) {
+  const rec = bodies.find((b) => b.date === dateKey);
+  const wk = weekKey(dateFromKey(dateKey));
+  if (!complete(rec) || wk !== weekKey(savedAt) || bonuses.some((x) => x.week === wk)) return null;
+  return { kind: 'measure', week: wk, stars: MEASURE_STARS, date: savedAt.toISOString() };
+}
+
+export function measuredThisWeek(bodies, today) {
+  const wk = weekKey(today);
+  return bodies.some((b) => complete(b) && weekKey(dateFromKey(b.date)) === wk);
+}
+
+/** 从本周（本周没量则从上周）往前数，连续有完整测量的周数。 */
+export function measureWeeksStreak(bodies, today) {
+  const weeks = new Set(bodies.filter(complete).map((b) => weekKey(dateFromKey(b.date))));
+  let d = startOfDay(today);
+  if (!weeks.has(weekKey(d))) d = addDays(d, -7);
+  let n = 0;
+  while (weeks.has(weekKey(d))) { n++; d = addDays(d, -7); }
+  return n;
+}
+
+/** 该日期前后 31 天内相隔最近的身高（同距离取较早），没有返回 null。 */
+export function heightNear(bodies, date) {
+  let best = null, bestD = Infinity;
+  for (const b of sortBodies(bodies)) {
+    if (b.h == null) continue;
+    const d = Math.abs(daysBetween(dateFromKey(b.date), dateFromKey(date)));
+    if (d <= 31 && d < bestD) { best = b.h; bestD = d; }
+  }
+  return best;
+}
+
+/** 腰围/身高比（2 位小数）；算不出返回 null。 */
+export function waistToHeight(bodies, rec) {
+  if (!rec || rec.waist == null) return null;
+  const h = rec.h ?? heightNear(bodies, rec.date);
+  return h ? Math.round((rec.waist / h) * 100) / 100 : null;
+}
+
+export function bmiOf(bodies, rec) {
+  if (!rec || rec.w == null) return null;
+  const h = rec.h ?? heightNear(bodies, rec.date);
+  return h ? round1(rec.w / ((h / 100) ** 2)) : null;
+}
+
+/** 给孩子看的正向鼓励；没有进步返回 null（不提任何负面信息）。 */
+export function bodyProgress(bodies, today) {
+  const list = sortBodies(bodies);
+  const t = startOfDay(today);
+  const ws = list.filter((b) => b.waist != null);
+  const L = ws[ws.length - 1];
+  if (L && daysBetween(dateFromKey(L.date), t) <= 21) {
+    const before = ws.filter((b) => b.date < L.date).map((b) => ({ b, d: daysBetween(dateFromKey(b.date), dateFromKey(L.date)) }));
+    let P = before.filter((x) => x.d >= 21 && x.d <= 42).sort((x, y) => Math.abs(x.d - 28) - Math.abs(y.d - 28) || y.d - x.d)[0];
+    if (!P) P = before.filter((x) => x.d >= 14).sort((x, y) => y.d - x.d)[0];
+    if (P && round1(P.b.waist - L.waist) >= 0.5) {
+      return { type: 'waist', cm: round1(P.b.waist - L.waist), weeks: weeksOf(P.d), key: `${L.date}:waist` };
+    }
+  }
+  const hs = list.filter((b) => b.h != null);
+  const Hn = hs[hs.length - 1];
+  if (!Hn || daysBetween(dateFromKey(Hn.date), t) > 35) return null;
+  const Hr = hs.filter((b) => b.date < Hn.date)
+    .map((b) => ({ b, d: daysBetween(dateFromKey(b.date), dateFromKey(Hn.date)) }))
+    .filter((x) => x.d >= 28 && x.d <= 120).sort((x, y) => x.d - y.d)[0];
+  if (!Hr || round1(Hn.h - Hr.b.h) < 0.5) return null;
+  const waistNear = (date) => {
+    let best = null, bestD = Infinity;
+    for (const b of ws) { const d = Math.abs(daysBetween(dateFromKey(b.date), dateFromKey(date))); if (d <= 14 && d < bestD) { best = b.waist; bestD = d; } }
+    return best;
+  };
+  const wn = waistNear(Hn.date), wr = waistNear(Hr.b.date);
+  if (wn != null && wr != null && wn > wr) return null;
+  return { type: 'height', cm: round1(Hn.h - Hr.b.h), weeks: weeksOf(Hr.d), key: `${Hn.date}:height` };
+}

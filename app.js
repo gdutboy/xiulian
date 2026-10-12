@@ -4,7 +4,7 @@ import * as FX from './fx.js';
 import * as NV from './native.js';
 
 // ---------- 状态 ----------
-let state = load();
+let state = load(globalThis.localStorage, window.__fakeNow ? new Date(window.__fakeNow) : new Date());
 let tab = 'home';
 let parentUnlocked = false;
 let draft = null;      // 打卡草稿 {mode:'tonight'|'makeup', day:Date, answers, result}
@@ -105,7 +105,33 @@ function homeView() {
       <div class="card stat"><span class="red small">🔥 连续修炼</span><b>${R.currentStreak(keys, t)} 天</b></div>
     </div>
     <div class="card today">${today}</div>
+    ${bodyCard(t)}
     <p class="quote">「${R.wordFor(t)}」</p>`;
+}
+
+// 孩子看到的「身体修炼」：只有正向变化量，不出现任何绝对数值
+function bodyCard(t) {
+  const rows = [];
+  const p = R.bodyProgress(state.bodies, t);
+  if (p) {
+    rows.push(p.type === 'waist'
+      ? `🎉 腰围比 ${p.weeks} 周前细了 ${p.cm} 厘米，全集中的成果！`
+      : `🌱 ${p.weeks} 周长高了 ${p.cm} 厘米，身体越来越结实！`);
+  }
+  const streak = R.measureWeeksStreak(state.bodies, t);
+  if (streak >= 2) rows.push(`📏 已经连续 ${streak} 周坚持身体测量`);
+  if (!R.measuredThisWeek(state.bodies, t)) rows.push('📏 这周还没量腰围和体重哦，请爸爸妈妈帮忙记录，完成 +1 ⭐');
+  if (!rows.length) return '';
+  return `<div class="card body-card"><h3>💪 身体修炼</h3>${rows.map((r, i) => `<p class="${i === 0 && p ? 'gold progress' : 'sub'}">${r}</p>`).join('')}</div>`;
+}
+
+function celebrateProgress() {
+  if (tab !== 'home' || !state.profile.name) return;
+  const p = R.bodyProgress(state.bodies, now());
+  if (!p || localStorage.getItem('xiulian.seenProgress') === p.key) return;
+  localStorage.setItem('xiulian.seenProgress', p.key);
+  FX.confetti(60);
+  FX.burst($('.body-card .progress'), { n: 10, dist: 90 });
 }
 
 // ---------- 页面：阶级 ----------
@@ -184,19 +210,22 @@ function parentGate() {
   return `<h2 class="title">家长</h2>${pinPadHTML()}`;
 }
 
-function lineChart(points, color, unit) {
-  if (points.length < 1) return '';
+function lineChart(points, color, unit, ref = null, digits = 1) {
+  points = points.filter((p) => Number.isFinite(p.y)).slice(-16);
+  if (points.length < 1) return `<p class="hint">${unit}：还没有记录</p>`;
   const W = 320, H = 120, P = 24;
-  const ys = points.map((p) => p.y);
+  const ys = points.map((p) => p.y).concat(ref != null ? [ref] : []);
   let min = Math.min(...ys), max = Math.max(...ys);
-  if (max - min < 1) { min -= 0.5; max += 0.5; }
+  const span = digits > 1 ? 0.02 : 1;
+  if (max - min < span) { min -= span / 2; max += span / 2; }
   const x = (i) => (points.length === 1 ? W / 2 : P + (i * (W - 2 * P)) / (points.length - 1));
   const y = (v) => H - P - ((v - min) * (H - 2 * P)) / (max - min);
   const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.y).toFixed(1)}`).join(' ');
   const dots = points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.y)}" r="3.5" fill="${color}"/>`).join('');
   const labels = points.map((p, i) => `<text x="${x(i)}" y="${H - 4}" text-anchor="middle">${p.label}</text>`).join('');
   return `<svg class="chart" viewBox="0 0 ${W} ${H}"><text x="2" y="12">${unit}</text>
-    <text x="${W - 2}" y="12" text-anchor="end">${max.toFixed(1)}</text><text x="${W - 2}" y="${H - P + 4}" text-anchor="end">${min.toFixed(1)}</text>
+    <text x="${W - 2}" y="12" text-anchor="end">${max.toFixed(digits)}</text><text x="${W - 2}" y="${H - P + 4}" text-anchor="end">${min.toFixed(digits)}</text>
+    ${ref != null ? `<line x1="${P}" x2="${W - P}" y1="${y(ref)}" y2="${y(ref)}" stroke="#f2b84d" stroke-dasharray="4 4" stroke-width="1"/><text x="${P}" y="${y(ref) - 3}" fill="#f2b84d">${ref}</text>` : ''}
     <path d="${path}" fill="none" stroke="${color}" stroke-width="2.5"/>${dots}${labels}</svg>`;
 }
 
@@ -204,9 +233,14 @@ function parentView() {
   if (!parentUnlocked) return parentGate();
   const s = state.settings;
   const bodies = [...state.bodies].sort((a, b) => a.date.localeCompare(b.date));
-  const pts = (f) => bodies.map((b) => ({ y: b[f], label: b.date.slice(5).replace('-', '/') }));
-  const last = bodies[bodies.length - 1];
-  const bmi = last ? last.w / ((last.h / 100) ** 2) : 0;
+  const lbl = (d) => d.slice(5).replace('-', '/');
+  const pts = (f) => bodies.filter((b) => b[f] != null).map((b) => ({ y: b[f], label: lbl(b.date) }));
+  const whtPts = bodies.map((b) => ({ y: R.waistToHeight(bodies, b), label: lbl(b.date) })).filter((p) => p.y != null);
+  const lastOf = (f) => [...bodies].reverse().find((b) => b[f] != null);
+  const lw = lastOf('w'), lwa = lastOf('waist'), lh = lastOf('h');
+  const bmi = R.bmiOf(bodies, lw), wht = R.waistToHeight(bodies, lwa);
+  const fmtB = (b) => [b.w != null ? `${b.w} kg` : '', b.waist != null ? `腰 ${b.waist} cm` : '', b.h != null ? `${b.h} cm` : ''].filter(Boolean).join(' · ');
+  const measured = R.measuredThisWeek(bodies, now());
   const keys = new Set(Object.keys(state.logs));
   const mk = new Set(Object.entries(state.logs).filter(([, l]) => l.isMakeup).map(([k]) => k));
   const cands = R.makeupCandidates(keys, mk, now());
@@ -220,12 +254,17 @@ function parentView() {
     <div class="flex gap"><input id="p-name" maxlength="8" value="${esc(state.profile.name)}"><button class="pill red" data-action="save-name">保存</button></div></div>
 
   <div class="card"><h3>成长记录（仅家长可见）</h3>
-    ${bodies.length ? `${lineChart(pts('w'), '#cc1a33', '体重 kg')}${lineChart(pts('h'), '#1f8561', '身高 cm')}
-      <p><b>最新：${last.h} cm / ${last.w} kg，BMI ${bmi.toFixed(1)}</b></p>` : '<p class="sub">还没有记录。建议每月固定一天早上空腹称一次。</p>'}
-    <p class="hint">儿童 BMI 要按年龄和性别对照，以儿保医生评估为准。理想趋势：身高在长、体重基本稳定。</p>
-    ${[...bodies].reverse().map((b) => `<div class="flex small"><span>${b.date}</span><span>${b.h} cm · ${b.w} kg <button class="x" data-action="del-body" data-date="${b.date}">✕</button></span></div>`).join('')}
-    <div class="form3"><input id="b-date" type="date" value="${today}" max="${today}"><input id="b-h" inputmode="decimal" placeholder="身高 cm"><input id="b-w" inputmode="decimal" placeholder="体重 kg"></div>
-    <button class="btn green" data-action="add-body">记录身高体重</button></div>
+    <p class="${measured ? 'green' : 'gold'}">${measured ? '本周已测量 ✅' : '本周还没测量（记齐体重和腰围，孩子 +1 ⭐）'}</p>
+    <div class="form2b"><input id="b-date" type="date" value="${today}" max="${today}"><input id="b-w" inputmode="decimal" placeholder="体重 kg"><input id="b-waist" inputmode="decimal" placeholder="腰围 cm"><input id="b-h" inputmode="decimal" placeholder="身高 cm（可不填）"></div>
+    <button class="btn green" data-action="add-body">保存本次测量</button>
+    <p class="hint">每周固定一次：周日早上起床后、空腹，腰围在肚脐那一圈量。身高每月量一次即可。留空的项会保留当天已记的数据。</p>
+    ${bodies.length ? `
+      <p><b>最新：</b>${lw ? `体重 ${lw.w} kg（${lbl(lw.date)}）` : ''}${lwa ? ` · 腰围 ${lwa.waist} cm（${lbl(lwa.date)}）` : ''}${lh ? ` · 身高 ${lh.h} cm（${lbl(lh.date)}）` : ''}
+        ${bmi != null ? `<br>BMI ${bmi.toFixed(1)}` : ''}${wht != null ? `${bmi != null ? ' · ' : '<br>'}腰围/身高 ${wht.toFixed(2)}` : ''}</p>
+      ${lineChart(pts('waist'), '#f2b84d', '腰围 cm')}${lineChart(whtPts, '#4d9ef2', '腰围/身高', 0.5, 2)}${lineChart(pts('w'), '#cc1a33', '体重 kg')}${lineChart(pts('h'), '#1f8561', '身高 cm')}
+      <p class="hint">腰围/身高：一般认为儿童低于 0.5 较理想；儿童 BMI 要按年龄和性别对照。都仅供参考，以儿保医生评估为准。理想趋势：身高在长、腰围不变或变细。</p>
+      ${[...bodies].reverse().map((b) => `<div class="flex small"><span>${b.date}</span><span>${fmtB(b)} <button class="x" data-action="del-body" data-date="${b.date}">✕</button></span></div>`).join('')}`
+      : '<p class="sub">还没有记录。</p>'}</div>
 
   <div class="card"><h3>补卡（每周最多 1 次，无早睡奖励）</h3>
     ${cands.length ? cands.map((d) => `<button class="row-btn" data-action="makeup" data-day="${R.dayKey(d)}">📅 补登 ${d.getMonth() + 1}月${d.getDate()}日 周${'日一二三四五六'[d.getDay()]}</button>`).join('') : '<p class="sub">最近 7 天没有可补的日子（或本周已补过）。</p>'}</div>
@@ -440,6 +479,7 @@ function render() {
   if (hs) hs.style.animationDelay = `-${(performance.now() % 3000) / 1000}s`;
   FX.fireflies();
   syncBack();
+  celebrateProgress();
 }
 
 // 告诉原生外壳：现在按返回键是否由网页处理（有弹层或不在首页）
@@ -569,13 +609,26 @@ const actions = {
     state.profile.name = v.slice(0, 8); persist(); render(); toast('已保存');
   },
   'add-body': () => {
-    const date = $('#b-date').value, h = parseFloat($('#b-h').value.replace(',', '.')), w = parseFloat($('#b-w').value.replace(',', '.'));
-    if (!date || !(h >= 80 && h <= 220) || !(w >= 15 && w <= 150)) return toast('请填写正确的身高（80–220）和体重（15–150）');
-    state.bodies = state.bodies.filter((b) => b.date !== date);
-    state.bodies.push({ date, h: Math.round(h * 10) / 10, w: Math.round(w * 10) / 10 });
-    persist(); render(); toast('已记录');
+    const t = now();
+    const date = $('#b-date').value;
+    if (!R.isRealDayKey(date) || date > R.dayKey(t)) return toast('请选择正确的日期（不能晚于今天）');
+    const entry = { date };
+    const names = { w: '体重（15–150 kg）', waist: '腰围（40–150 cm）', h: '身高（80–220 cm）' };
+    for (const [f, id] of [['w', '#b-w'], ['waist', '#b-waist'], ['h', '#b-h']]) {
+      const raw = $(id).value.trim().replace(',', '.');
+      if (!raw) continue;
+      const v = R.cleanBodyValue(f, Number(raw));
+      if (v == null) return toast(`请填写正确的${names[f]}`);
+      entry[f] = v;
+    }
+    if (Object.keys(entry).length === 1) return toast('体重、腰围、身高至少填一项');
+    state.bodies = R.mergeBody(state.bodies, entry);
+    const bonus = R.measureBonusFor(state.bodies, state.bonuses, date, t);
+    if (bonus) state.bonuses.push(bonus);
+    persist(); render();
+    toast(bonus ? '已记录，孩子获得 1 颗星 ⭐' : '已记录');
   },
-  'del-body': (el) => { if (confirm('删除这条记录？')) { state.bodies = state.bodies.filter((b) => b.date !== el.dataset.date); persist(); render(); } },
+  'del-body': (el) => { if (confirm('删除这一天的全部测量记录？（已经给孩子的星星不会收回）')) { state.bodies = state.bodies.filter((b) => b.date !== el.dataset.date); persist(); render(); } },
   makeup: (el) => openCheckIn('makeup', R.dateFromKey(el.dataset.day)),
   'add-reward': () => {
     const name = $('#r-name').value.trim(), cost = parseInt($('#r-cost').value, 10);
@@ -660,7 +713,7 @@ document.addEventListener('change', async (e) => {
   }
   if (e.target.id !== 'import-file' || !e.target.files[0]) return;
   try {
-    const data = sanitize(JSON.parse(await e.target.files[0].text()));
+    const data = sanitize(JSON.parse(await e.target.files[0].text()), now());
     if (!confirm(`备份里有 ${Object.keys(data.logs).length} 天打卡记录，恢复后会覆盖这台手机上现在的数据。确定吗？`)) return;
     state = data; persist(); parentUnlocked = false; render(); toast('已从备份恢复');
   } catch {
