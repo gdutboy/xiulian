@@ -368,7 +368,6 @@ function bgmCard() {
     <p class="small">平时播放：<b>${esc(b.customName || b.builtinName || '原创和风配乐')}</b>（打完卡和睡前拉伸时换成安静的曲子）</p>
     <label class="btn gray file">选择自己的歌曲<input type="file" id="bgm-file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac"></label>
     ${b.customName ? `<button class="btn gray" data-action="bgm-clear">换回${b.builtinName ? esc(b.builtinName) : '原创配乐'}</button>` : ''}
-    ${!b.customName && !b.builtinName ? '<p class="hint gold">登录账号（下面的「账号同步」）后，会自动下载家里服务器上的《红莲华》作为背景音乐。</p>' : ''}
     <p class="hint">支持 mp3、m4a 等普通音乐文件，只保存在这台手机里。网易云、QQ 音乐会员下载的加密文件（.ncm 等）放不出来。「动画音效」关闭时背景音乐也不播放。</p></div>`;
 }
 
@@ -926,6 +925,5 @@ if (SYNC.isViewer()) {
   // 登录过的手机：后台把家里的背景音乐下载到本机（只一次）
   const getSong = () => BGM.ensureAccountSong(SYNC.fetchSong).then((n) => { if (n) { toast(`🎵 已获取背景音乐《${n}》`); if (tab === 'parent') render(); } });
   setTimeout(getSong, 2500);
-  window.addEventListener('xiulian-login', getSong);
 }
 window.__xiulian = { get state() { return state; }, render, back };

@@ -30,7 +30,7 @@ export async function refresh(manual = false) {
   if (loading) return;
   loading = true;
   try {
-    const r = await SYNC.api('GET', '/v1/data');
+    const r = await SYNC.api('GET', '/data');
     if (r.status === 401) { meta.authError = true; return; }
     if (r.status !== 200) throw new Error();
     meta = { updatedAt: r.data.updatedAt, fetchedAt: new Date().toISOString(), offline: false, empty: !r.data.data };
@@ -48,8 +48,7 @@ export async function refresh(manual = false) {
 
 function banner() {
   const name = view?.profile?.name || '孩子';
-  const st = meta.authError ? '<span class="red">登录已失效，请到「设置」退出后重新登录</span>'
-    : meta.offline ? `<span class="gold">离线，显示的是 ${hm(meta.fetchedAt) || '之前'} 的数据</span>`
+  const st = meta.offline ? `<span class="gold">离线，显示的是 ${hm(meta.fetchedAt) || '之前'} 的数据</span>`
       : `更新于 ${hm(meta.updatedAt) || '—'}`;
   return `<div class="card viewbar"><div class="flex"><b>👀 家长查看：${H.esc(name)}</b><button class="pill gray" data-action="view-refresh">刷新</button></div>
     <p class="hint">只读，不能在这里打卡或修改。${st}</p></div>`;
@@ -106,17 +105,16 @@ function growthTab() {
 }
 
 function settingsTab() {
-  const a = SYNC.account();
-  return `<div class="card"><h3>家长查看设置</h3><div class="flex"><span>登录账号</span><b>${H.esc(a.username)}</b></div>
+  return `<div class="card"><h3>家长查看设置</h3>
     <p class="hint">这台手机是家长查看模式，只能看不能改。打卡、录入测量、设置奖励请在孩子的手机上操作。</p>
     <button class="btn gray" data-action="view-refresh">立即刷新</button>
-    <button class="btn danger" data-action="view-logout">退出登录</button></div>`;
+    <button class="btn danger" data-action="view-logout">退出家长查看（切回普通模式）</button></div>`;
 }
 
 export function render() {
   const views = { overview, logs: logsTab, growth: growthTab, settings: settingsTab };
   let body;
-  if (!view) body = meta.empty ? '<div class="card"><p class="sub">孩子的手机还没有上传过数据。请在孩子手机的「家长」页登录同一个账号。</p></div>'
+  if (!view) body = meta.empty ? '<div class="card"><p class="sub">孩子的手机还没有上传过数据。孩子的手机打开网页版后会自动备份，稍后再刷新看看。</p></div>'
     : (tab === 'settings' ? settingsTab() : '<div class="card"><p class="sub">正在读取…</p></div>');
   else body = views[tab]();
   $('#app').innerHTML = banner() + body;
@@ -130,7 +128,7 @@ export const actions = {
   'view-tab': (el) => { tab = el.dataset.tab; render(); window.scrollTo(0, 0); },
   'view-refresh': () => refresh(true),
   'view-logout': async () => {
-    if (!confirm('退出家长查看吗？')) return;
+    if (!confirm('退出家长查看，把这台手机切回普通模式吗？')) return;
     await SYNC.logout();
     try { localStorage.removeItem(CACHE); } catch { /* 忽略 */ }
     location.reload();
